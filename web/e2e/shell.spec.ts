@@ -16,6 +16,7 @@ test("the binary serves the shell with no CSP violation", async ({ page }) => {
   });
 
   const response = await page.goto("/");
+  await expect(page).toHaveURL(/\/$/);
   expect(response?.headers()["content-security-policy"]).toContain(
     "script-src 'self'",
   );
