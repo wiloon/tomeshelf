@@ -1,0 +1,70 @@
+version: "3"
+
+vars:
+  BIN: bin/tomeshelf
+
+tasks:
+  web:install:
+    desc: Install the browser app's dependencies from the lockfile.
+    dir: web
+    run: once
+    cmds:
+      - pnpm install --frozen-lockfile
+
+  build:web:
+    desc: Build the browser app into web/dist, which the binary embeds.
+    deps: [web:install]
+    dir: web
+    cmds:
+      - pnpm run build
+
+  build:
+    desc: Build the browser app, then the tomeshelf binary.
+    cmds:
+      - task: build:web
+      - go build -o {{.BIN}} ./cmd/tomeshelf
+
+  test:go:
+    desc: Check Go formatting, vet and run the Go tests.
+    cmds:
+      - test -z "$(gofmt -l cmd internal web/embed.go)"
+      - go vet ./...
+      - go test ./...
+
+  test:web:
+    desc: Run Vitest.
+    deps: [web:install]
+    dir: web
+    cmds:
+      - pnpm run test
+
+  typecheck:
+    desc: Type-check the browser app.
+    deps: [web:install]
+    dir: web
+    cmds:
+      - pnpm run typecheck
+
+  lint:
+    desc: Check the browser app with Biome.
+    deps: [web:install]
+    dir: web
+    cmds:
+      - pnpm run lint
+
+  ci:
+    desc: Run the same checks as CI. Needs no secrets and no container tooling.
+    cmds:
+      - task: lint
+      - task: typecheck
+      - task: test:web
+      - task: build
+      - task: test:go
+
+  e2e:
+    desc: Build the binary, start it, and run the Playwright tests against it.
+    cmds:
+      - task: build
+      - cd web && pnpm run e2e
+    env:
+      TOMESHELF_BIN: "{{.ROOT_DIR}}/{{.BIN}}"
