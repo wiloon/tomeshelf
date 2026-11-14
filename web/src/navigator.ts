@@ -9,6 +9,11 @@ export type Manifest = {
 
 export class NotFoundError extends Error {}
 
+declare const __TOMESHELF_VERSION__: string;
+
+// The id of the article that holds the document's text (ADR-0006).
+export const contentId = "tomeshelf-content";
+
 // Manifest hrefs and the URLs inside a document are resolved against this
 // base, so a URL that leaves its origin points outside the package.
 const packageBase = "https://package.invalid/";
@@ -95,15 +100,68 @@ export function renderDocument(
 ) {
   const purify = DOMPurify(window);
   purify.addHook("afterSanitizeAttributes", (node) => {
+    dropContractMarkup(node);
     rewriteURLs(node, place);
   });
   const clean = purify.sanitize(html, {
-    FORBID_TAGS: ["style", "form", "input", "button", "select", "textarea"],
+    FORBID_TAGS: [
+      "style",
+      "meta",
+      "form",
+      "input",
+      "button",
+      "select",
+      "textarea",
+    ],
     FORBID_ATTR: ["style"],
     RETURN_TRUSTED_TYPE: true,
     ...(policy && { TRUSTED_TYPES_POLICY: policy }),
   });
   target.innerHTML = clean as unknown as string;
+  numberBlocks(target);
+}
+
+// The DOM contract for reading extensions (ADR-0006) is public: only the
+// Navigator writes its markup, so the book's own is removed first.
+function dropContractMarkup(el: Element) {
+  for (const name of el.getAttributeNames()) {
+    if (name.startsWith("data-tomeshelf-")) {
+      el.removeAttribute(name);
+    }
+  }
+  if (el.getAttribute("id") === contentId) {
+    el.removeAttribute("id");
+  }
+}
+
+// Numbers the blocks per document, from 1, in document order (ADR-0006).
+// Changing which elements count breaks extensions and stored positions.
+function numberBlocks(target: HTMLElement) {
+  target
+    .querySelectorAll("p, h1, h2, h3, h4, h5, h6, li")
+    .forEach((block, i) => {
+      block.setAttribute("data-tomeshelf-block", String(i + 1));
+    });
+}
+
+// Marks the page as a tomeshelf reading page of the book (ADR-0006), and
+// returns a function that removes the marks again.
+export function markReadingPage(bookId: string): () => void {
+  const tags = [
+    ["generator", `tomeshelf ${__TOMESHELF_VERSION__}`],
+    ["tomeshelf:book", bookId],
+  ].map(([name, content]) => {
+    const meta = document.createElement("meta");
+    meta.name = name;
+    meta.content = content;
+    document.head.append(meta);
+    return meta;
+  });
+  return () => {
+    for (const meta of tags) {
+      meta.remove();
+    }
+  };
 }
 
 function rewriteURLs(el: Element, place: DocumentPlace) {

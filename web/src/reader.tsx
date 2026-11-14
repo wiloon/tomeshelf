@@ -7,9 +7,11 @@ import {
 } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import {
+  contentId,
   type DocumentPlace,
   fetchDocument,
   fetchManifest,
+  markReadingPage,
   NotFoundError,
   renderDocument,
 } from "./navigator";
@@ -44,6 +46,8 @@ function BookDocument({ html, place }: { html: string; place: DocumentPlace }) {
   const navigate = useNavigate();
   const hash = useLocation({ select: (location) => location.hash });
   const { bookId, readingOrder, n } = place;
+
+  useLayoutEffect(() => markReadingPage(bookId), [bookId]);
 
   useLayoutEffect(() => {
     if (!ref.current) {
@@ -89,7 +93,7 @@ function BookDocument({ html, place }: { html: string; place: DocumentPlace }) {
     return () => article.removeEventListener("click", onClick);
   }, [navigate]);
 
-  return <article id="tomeshelf-content" ref={ref} />;
+  return <article id={contentId} ref={ref} />;
 }
 
 export function ReaderPage() {
@@ -150,7 +154,10 @@ export function ReaderPage() {
           place={{ bookId: id, readingOrder: manifest.data.readingOrder, n }}
         />
       )}
-      <nav aria-label="Reading order" className="flex justify-between gap-4">
+      <nav
+        aria-label="Reading order"
+        className="reading-column flex justify-between gap-4"
+      >
         {n > 1 ? (
           <Link
             to="/books/$id/read/$n"

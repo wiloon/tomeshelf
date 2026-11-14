@@ -1,10 +1,17 @@
 @import "tailwindcss";
 
+/* The text column. The article and the reading controls share its width and
+   left edge on every document, however short its text. */
+#tomeshelf-content,
+.reading-column {
+  width: 100%;
+  max-width: 38rem;
+  margin-inline: auto;
+}
+
 /* tomeshelf's typography for book text, which keeps none of its own CSS
    (ADR-0003). */
 #tomeshelf-content {
-  max-width: 38rem;
-  margin-inline: auto;
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
   font-size: 1.125rem;
   line-height: 1.6;

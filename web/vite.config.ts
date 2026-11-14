@@ -4,6 +4,12 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  define: {
+    // The version in the reading pages' generator meta tag (ADR-0006).
+    __TOMESHELF_VERSION__: JSON.stringify(
+      process.env.TOMESHELF_VERSION || "dev",
+    ),
+  },
   build: {
     outDir: "dist",
     emptyOutDir: true,
