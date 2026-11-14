@@ -9,7 +9,7 @@ tomeshelf is a self-hosted EPUB reader. It renders book text into the main docum
 3. Build it test-first with the matching skill (table below).
 4. Open a PR with the `pr` skill. Its body says `Closes #<n>` and names every check you did not run.
 
-The work is done when every acceptance criterion in the issue is checked off and the CI checks pass locally on your committed changes.
+The work is done when every acceptance criterion in the issue is checked off and `task ci` passes on your committed changes. `task ci` runs the CI checks locally; `task e2e` runs the Playwright tests against the built binary.
 
 ## Tests
 
