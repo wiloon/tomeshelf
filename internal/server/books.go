@@ -77,6 +77,36 @@ func (s *site) importBook(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deleteBook deletes a book from the signed-in user's library. Another
+// user's book answers 404, as an unknown one does. Once the row is gone the
+// deletion has happened: files that could not be removed are logged and
+// left behind (ADR-0007).
+func (s *site) deleteBook(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireUser(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	err = s.books.Delete(r.Context(), user, id)
+	var leftover *library.LeftoverError
+	switch {
+	case err == nil:
+	case errors.As(err, &leftover):
+		s.logger.Error("book deleted, files left behind", "user", user, "book", id, "err", leftover.Err)
+	case errors.Is(err, store.ErrUnknownBook):
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	default:
+		s.apiError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // thumbnail answers the cover thumbnail of a book in the signed-in user's
 // library. The session and the book's owner are checked before anything is
 // read, on every request, so neither a thumbnail cached on the server nor a

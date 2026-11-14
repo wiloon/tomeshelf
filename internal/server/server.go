@@ -48,6 +48,7 @@ func New(build fs.FS, logger *slog.Logger, accounts Accounts, settings Settings,
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/books", s.listBooks)
 	mux.HandleFunc("POST /api/books", s.importBook)
+	mux.HandleFunc("DELETE /api/books/{id}", s.deleteBook)
 	mux.HandleFunc("GET /api/books/{id}/thumbnail", s.thumbnail)
 	mux.HandleFunc("GET /api/books/{id}/manifest", s.manifest)
 	mux.HandleFunc("GET /api/books/{id}/package/{path...}", s.packageFile)

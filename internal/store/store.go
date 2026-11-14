@@ -267,6 +267,23 @@ func (s *Store) Book(ctx context.Context, username string, id int64) (Book, erro
 	return b, nil
 }
 
+// DeleteBook deletes the book with the id from the user's library and
+// returns its SHA256. It returns ErrUnknownBook, and changes nothing, when
+// the user's library has no such book.
+func (s *Store) DeleteBook(ctx context.Context, username string, id int64) (string, error) {
+	sum, err := s.q.DeleteBook(ctx, dbq.DeleteBookParams{ID: id, Username: username})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrUnknownBook
+	}
+	return sum, err
+}
+
+// BookFileNamed reports whether any user's library has a book whose original
+// has the SHA256.
+func (s *Store) BookFileNamed(ctx context.Context, sha256 string) (bool, error) {
+	return s.q.BookFileNamed(ctx, sha256)
+}
+
 // ReadingSettings are a user's saved reading settings. The server checks them
 // against the settings contract before they are saved.
 type ReadingSettings struct {

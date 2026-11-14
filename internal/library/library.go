@@ -1,5 +1,5 @@
-// Package library imports EPUB files into the library and makes their cover
-// thumbnails. Each book's original is the only stored copy, at
+// Package library imports EPUB files into the library, deletes them, and
+// makes their cover thumbnails. Each book's original is the only stored copy, at
 // books/<sha256>.epub under the data directory; uploads are staged in tmp/ on
 // the same filesystem, and thumbnails are a cache under cache/ (ADR-0007).
 package library
@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -40,6 +41,8 @@ type Store interface {
 	AddBook(ctx context.Context, username string, b store.Book) (store.Book, error)
 	Books(ctx context.Context, username string) ([]store.Book, error)
 	Book(ctx context.Context, username string, id int64) (store.Book, error)
+	DeleteBook(ctx context.Context, username string, id int64) (string, error)
+	BookFileNamed(ctx context.Context, sha256 string) (bool, error)
 }
 
 // Library is the books in a data directory. Its methods are safe for
@@ -49,6 +52,28 @@ type Library struct {
 	tmpDir    string
 	coversDir string
 	store     Store
+	locks     shaLocks
+	// openOriginal opens an original for reading its ZIP entries.
+	openOriginal func(path string) (readerAtCloser, int64, error)
+}
+
+// readerAtCloser is an opened original.
+type readerAtCloser interface {
+	io.ReaderAt
+	io.Closer
+}
+
+func openFile(path string) (readerAtCloser, int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, 0, err
+	}
+	return f, info.Size(), nil
 }
 
 // Open prepares books/ and tmp/ in dataDir and empties tmp/, which only
@@ -56,10 +81,11 @@ type Library struct {
 // cached in cache/covers/, which is created when a thumbnail is first made.
 func Open(dataDir string, st Store) (*Library, error) {
 	l := &Library{
-		booksDir:  filepath.Join(dataDir, "books"),
-		tmpDir:    filepath.Join(dataDir, "tmp"),
-		coversDir: filepath.Join(dataDir, "cache", "covers"),
-		store:     st,
+		booksDir:     filepath.Join(dataDir, "books"),
+		tmpDir:       filepath.Join(dataDir, "tmp"),
+		coversDir:    filepath.Join(dataDir, "cache", "covers"),
+		store:        st,
+		openOriginal: openFile,
 	}
 	if err := os.RemoveAll(l.tmpDir); err != nil {
 		return nil, err
@@ -79,7 +105,8 @@ func (l *Library) Books(ctx context.Context, username string) ([]store.Book, err
 
 // Import stages the EPUB read from r, reads its metadata and adds it to the
 // user's library. The original is renamed into books/ before its row is
-// inserted, so a row never names a missing file. It returns a *ParseError,
+// inserted, both under its SHA-256's lock, which Delete also takes, so a row
+// never names a missing file. It returns a *ParseError,
 // ErrDRM or store.ErrBookExists for files it refuses, and the reader's or
 // ctx's error when the upload does not arrive. Only a book that passed the
 // checks leaves its original behind, even when the insert then fails.
@@ -106,11 +133,60 @@ func (l *Library) Import(ctx context.Context, username string, r io.Reader) (sto
 	if err := ctx.Err(); err != nil {
 		return store.Book{}, err
 	}
+	unlock := l.locks.lock(sum)
+	defer unlock()
 	if err := os.Rename(staged, filepath.Join(l.booksDir, sum+".epub")); err != nil {
 		return store.Book{}, err
 	}
 	renamed = true
 	return l.store.AddBook(ctx, username, book)
+}
+
+// LeftoverError means Delete deleted the book's row but could not remove
+// its original or a cache file, which is left behind unreferenced for a
+// later import of the same file to reuse (ADR-0007).
+type LeftoverError struct{ Err error }
+
+func (e *LeftoverError) Error() string { return "book deleted, files left behind: " + e.Err.Error() }
+func (e *LeftoverError) Unwrap() error { return e.Err }
+
+// Delete deletes the book with the id from the user's library. Once no row
+// names its original any more, it removes the original and its cache
+// files. It returns store.ErrUnknownBook, and changes nothing, when the
+// user's library has no such book, and a *LeftoverError when the row is gone
+// but a file could not be removed.
+func (l *Library) Delete(ctx context.Context, username string, id int64) error {
+	book, err := l.store.Book(ctx, username, id)
+	if err != nil {
+		return err
+	}
+	unlock := l.locks.lock(book.SHA256)
+	defer unlock()
+	if _, err := l.store.DeleteBook(ctx, username, id); err != nil {
+		return err
+	}
+	ctx = context.WithoutCancel(ctx)
+	named, err := l.store.BookFileNamed(ctx, book.SHA256)
+	if err != nil {
+		return &LeftoverError{Err: err}
+	}
+	if named {
+		return nil
+	}
+	var errs []error
+	for _, path := range []string{
+		filepath.Join(l.coversDir, book.SHA256+".jpg"),
+		filepath.Join(l.coversDir, book.SHA256+".none"),
+		filepath.Join(l.booksDir, book.SHA256+".epub"),
+	} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return &LeftoverError{Err: errors.Join(errs...)}
+	}
+	return nil
 }
 
 // stage copies r into a new file in tmp/ and returns its path and SHA-256.

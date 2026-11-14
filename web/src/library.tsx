@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ChangeEvent, useId, useState } from "react";
+import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 import { AccountBar } from "./auth";
 
 type Book = { id: number; title: string; authors: string[] };
@@ -31,6 +31,86 @@ async function importBook(file: File): Promise<Outcome> {
     text:
       body?.error ?? `Something went wrong (${res.status}). Please try again.`,
   };
+}
+
+// Deletes one book and returns what to tell the user. A 404 means the book
+// is already gone, which is what the user asked for.
+async function deleteBook(book: Book): Promise<Outcome> {
+  const res = await fetch(`/api/books/${book.id}`, { method: "DELETE" });
+  if (res.ok || res.status === 404) {
+    return { ok: true, text: `Deleted ${book.title}.` };
+  }
+  return {
+    ok: false,
+    text: `${book.title} could not be deleted (${res.status}). Please try again.`,
+  };
+}
+
+// Asks to confirm deleting book while it is set. Cancel, Escape and a
+// click outside close it without deleting.
+function DeleteDialog({
+  book,
+  onClose,
+  onConfirm,
+}: {
+  book: Book | null;
+  onClose: () => void;
+  onConfirm: (book: Book) => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const id = useId();
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (book && !dialog?.open) {
+      dialog?.showModal();
+    } else if (!book && dialog?.open) {
+      dialog.close();
+    }
+  }, [book]);
+
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes the dialog natively.
+    <dialog
+      ref={ref}
+      aria-labelledby={`${id}-heading`}
+      onClose={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          event.currentTarget.close();
+        }
+      }}
+      className="m-auto w-[calc(100%-2rem)] max-w-sm rounded bg-(--panel-bg) p-4 text-(--page-fg) shadow-xl backdrop:bg-black/40"
+    >
+      {book && (
+        <div className="flex flex-col gap-4">
+          <h2 id={`${id}-heading`} className="text-lg font-semibold">
+            Delete book
+          </h2>
+          <p className="wrap-anywhere">
+            Delete <strong>{book.title}</strong> from your library? This cannot
+            be undone.
+          </p>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => ref.current?.close()}
+              className="rounded border border-stone-300 px-3 py-1.5"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onConfirm(book)}
+              className="rounded bg-red-700 px-3 py-1.5 text-white"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+    </dialog>
+  );
 }
 
 // The book's cover thumbnail, or its title when the server has no usable
@@ -66,6 +146,28 @@ export function LibraryPage() {
   const id = useId();
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [pending, setPending] = useState(false);
+  const [confirming, setConfirming] = useState<Book | null>(null);
+
+  async function onDeleteConfirmed(book: Book) {
+    setConfirming(null);
+    setOutcome(null);
+    let result: Outcome;
+    try {
+      result = await deleteBook(book);
+    } catch {
+      result = {
+        ok: false,
+        text: "tomeshelf could not be reached. Please try again.",
+      };
+    }
+    setOutcome(result);
+    if (result.ok) {
+      queryClient.setQueryData<Book[]>(["books"], (list) =>
+        list?.filter((b) => b.id !== book.id),
+      );
+    }
+    await queryClient.invalidateQueries({ queryKey: ["books"] });
+  }
 
   async function onFileChosen(event: ChangeEvent<HTMLInputElement>) {
     const input = event.currentTarget;
@@ -124,7 +226,7 @@ export function LibraryPage() {
             className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
           >
             {books.data.map((book) => (
-              <li key={book.id} className="min-w-0">
+              <li key={book.id} className="flex min-w-0 flex-col gap-1">
                 <Link
                   to="/books/$id/read/$n"
                   params={{ id: String(book.id), n: "1" }}
@@ -141,11 +243,24 @@ export function LibraryPage() {
                     </span>
                   )}
                 </Link>
+                <button
+                  type="button"
+                  aria-label={`Delete ${book.title}`}
+                  onClick={() => setConfirming(book)}
+                  className="self-start text-sm text-stone-600 underline"
+                >
+                  Delete
+                </button>
               </li>
             ))}
           </ul>
         )}
       </section>
+      <DeleteDialog
+        book={confirming}
+        onClose={() => setConfirming(null)}
+        onConfirm={onDeleteConfirmed}
+      />
     </div>
   );
 }
