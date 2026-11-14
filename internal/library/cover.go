@@ -159,7 +159,8 @@ func coverEntry(ctx context.Context, path string) (string, error) {
 }
 
 // readEntry returns the named entry of the ZIP at path, reading at most limit
-// extracted bytes whatever size the entry declares.
+// extracted bytes whatever size the entry declares. A directory is reported
+// as fs.ErrNotExist.
 func readEntry(path, name string, limit int64) ([]byte, error) {
 	zr, err := zip.OpenReader(path)
 	if err != nil {
@@ -171,6 +172,11 @@ func readEntry(path, name string, limit int64) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
+	if info, err := f.Stat(); err != nil {
+		return nil, err
+	} else if info.IsDir() {
+		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
+	}
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return nil, err

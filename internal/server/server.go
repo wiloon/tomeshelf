@@ -45,11 +45,31 @@ func New(build fs.FS, logger *slog.Logger, accounts Accounts, books *library.Lib
 	mux.HandleFunc("GET /api/books", s.listBooks)
 	mux.HandleFunc("POST /api/books", s.importBook)
 	mux.HandleFunc("GET /api/books/{id}/thumbnail", s.thumbnail)
+	mux.HandleFunc("GET /api/books/{id}/manifest", s.manifest)
+	mux.HandleFunc("GET /api/books/{id}/package/{path...}", s.packageFile)
 	mux.HandleFunc("/api/", s.apiNotFound)
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("GET /signin", s.signInPage)
 	mux.HandleFunc("/", s.page)
-	return http.NewCrossOriginProtection().Handler(mux)
+	return http.NewCrossOriginProtection().Handler(s.unredirectedAPI(mux))
+}
+
+// unredirectedAPI answers an API path holding dot segments or repeated
+// slashes as unknown, where mux would redirect it to its cleaned form, so a
+// package path cannot step out of its book.
+func (s *site) unredirectedAPI(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		clean := path.Clean(p)
+		if strings.HasSuffix(p, "/") && clean != "/" {
+			clean += "/"
+		}
+		if strings.HasPrefix(p, "/api/") && clean != p {
+			s.apiNotFound(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	})
 }
 
 type site struct {
