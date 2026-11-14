@@ -49,6 +49,34 @@ function meta(page: Page, name: string) {
   return page.locator(`head meta[name="${name}"]`);
 }
 
+// Where the text lives: one article in the main DOM, with no iframe or
+// shadow root anywhere on the page.
+function containers(page: Page) {
+  return page.evaluate(() => ({
+    articles: document.querySelectorAll("#tomeshelf-content").length,
+    inMainDocument:
+      document.getElementById("tomeshelf-content")?.localName ?? null,
+    iframes: document.querySelectorAll("iframe").length,
+    shadowRoots: [...document.querySelectorAll("*")].filter(
+      (el) => el.shadowRoot,
+    ).length,
+  }));
+}
+
+const inMainDom = {
+  articles: 1,
+  inMainDocument: "article",
+  iframes: 0,
+  shadowRoots: 0,
+};
+
+function nextDocument(page: Page) {
+  return page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("link", { name: "Next" })
+    .click();
+}
+
 function blocks(page: Page) {
   return page.evaluate(() =>
     [
@@ -109,17 +137,20 @@ test("reading pages carry the generator and book meta tags, updated on every mov
   await expect(meta(page, "tomeshelf:book")).toHaveAttribute("content", id);
   await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(0);
 
-  await page
-    .getByRole("navigation", { name: "Reading order" })
-    .getByRole("link", { name: "Next" })
-    .click();
+  await nextDocument(page);
   await expect(article(page)).toContainText("A short note.");
   await expect(meta(page, "generator")).toHaveCount(1);
+  await expect(meta(page, "generator")).toHaveAttribute(
+    "content",
+    /^tomeshelf \S+$/,
+  );
   await expect(meta(page, "tomeshelf:book")).toHaveCount(1);
   await expect(meta(page, "tomeshelf:book")).toHaveAttribute("content", id);
+  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(0);
 
   await page.getByRole("link", { name: "Library", exact: true }).click();
   await expect(meta(page, "tomeshelf:book")).toHaveCount(0);
+  await expect(meta(page, "generator")).toHaveCount(0);
   const other = await chooseBook(
     page,
     "A Hand-Made Reading Book",
@@ -139,27 +170,27 @@ test("one article holds the text in the main DOM, with blocks numbered per docum
   await importBook(page, "chapters.epub", chapters);
   const id = await chooseBook(page, chapters, "CHAPTER I.");
 
-  expect(
-    await page.evaluate(() => ({
-      articles: document.querySelectorAll("#tomeshelf-content").length,
-      iframes: document.querySelectorAll("iframe").length,
-      shadowRoots: [...document.querySelectorAll("*")].filter(
-        (el) => el.shadowRoot,
-      ).length,
-    })),
-  ).toEqual({ articles: 1, iframes: 0, shadowRoots: 0 });
+  expect(await containers(page)).toEqual(inMainDom);
   expect(await blocks(page)).toEqual(chapterBlocks);
 
   await page.reload();
   await expect(article(page)).toContainText("CHAPTER I.");
   expect(await blocks(page)).toEqual(chapterBlocks);
 
-  await page.goto(`/books/${id}/read/2`);
-  await expect(article(page)).toContainText("A short note.");
-  expect(await blocks(page)).toEqual([
+  const noteBlocks = [
     { tag: "h1", n: "1", text: "Notes" },
     { tag: "p", n: "2", text: "A short note." },
-  ]);
+  ];
+  await nextDocument(page);
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  await expect(article(page)).toContainText("A short note.");
+  expect(await containers(page)).toEqual(inMainDom);
+  expect(await blocks(page)).toEqual(noteBlocks);
+
+  await page.goto(`/books/${id}/read/2`);
+  await expect(article(page)).toContainText("A short note.");
+  expect(await containers(page)).toEqual(inMainDom);
+  expect(await blocks(page)).toEqual(noteBlocks);
 });
 
 test("the book's own contract markup never survives", async ({ page }) => {
