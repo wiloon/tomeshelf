@@ -3,7 +3,7 @@ import DOMPurify, { type Config } from "dompurify";
 export type Link = { href: string; type?: string };
 
 export type Manifest = {
-  metadata: { title: string };
+  metadata: { title: string | Record<string, string> };
   readingOrder: Link[];
 };
 
@@ -130,7 +130,7 @@ function rewriteURLs(el: Element, place: DocumentPlace) {
     el.removeAttribute("src");
     const url = el.localName === "img" ? resolve(src, base) : null;
     if (url?.origin === packageOrigin) {
-      el.setAttribute("src", packageURL(place.bookId, url.pathname));
+      el.setAttribute("src", packageURL(place.bookId, url.pathname) + url.hash);
     }
   }
 }

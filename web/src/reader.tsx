@@ -135,7 +135,9 @@ export function ReaderPage() {
           Library
         </Link>
         <h2 className="text-lg font-semibold">
-          {manifest.data.metadata.title}
+          {typeof manifest.data.metadata.title === "string"
+            ? manifest.data.metadata.title
+            : Object.values(manifest.data.metadata.title)[0]}
         </h2>
       </div>
       {doc.isError && (

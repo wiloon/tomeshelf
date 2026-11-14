@@ -106,6 +106,34 @@ test("a book opens at its first document and previous/next walk its reading orde
   await signedOut.close();
 });
 
+test("a book with a translated title opens in the reader", async ({ page }) => {
+  expect(
+    (
+      await page.request.post("/api/setup", {
+        data: { username: "reader", password: "reader password" },
+      })
+    ).status(),
+  ).toBe(201);
+  await page.goto("/");
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "translated-title.epub"));
+  await expect(page.getByRole("status")).toContainText("Imported");
+  await page.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
+  const manifest = await page.request.get(
+    new URL(page.url()).pathname
+      .replace(/read\/1$/, "manifest")
+      .replace("/books/", "/api/books/"),
+  );
+  expect(typeof (await manifest.json()).metadata.title).toBe("object");
+  await expect(
+    page.getByRole("heading", {
+      name: /A Hand-Made Reading Book|Un livre artisanal/,
+    }),
+  ).toBeVisible();
+  await expect(article(page)).toContainText("Document One");
+});
+
 test("unknown books and documents show not found", async ({ page }) => {
   const id = await openBook(page);
   for (const url of [
@@ -232,6 +260,10 @@ test("links and images resolve against the document's path in the package", asyn
   await expect(wide).toHaveAttribute(
     "src",
     `/api/books/${id}/package/OEBPS/images/wide.png`,
+  );
+  await expect(article(page).locator("img#fragment")).toHaveAttribute(
+    "src",
+    `/api/books/${id}/package/OEBPS/images/wide.png#detail`,
   );
   await expect(wide).not.toHaveAttribute("srcset", /./);
   await expect
