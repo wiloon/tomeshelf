@@ -32,6 +32,7 @@ var (
 	ErrPasswordChanged = errors.New("the password changed after it was read")
 	ErrNoSession       = errors.New("no valid session")
 	ErrBookExists      = errors.New("the book is already in the library")
+	ErrUnknownBook     = errors.New("no such book in the library")
 )
 
 //go:embed migrations/*.sql
@@ -247,6 +248,23 @@ func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
 		books = append(books, b)
 	}
 	return books, nil
+}
+
+// Book returns the book with the id in the user's library, or ErrUnknownBook
+// when the user's library has no such book.
+func (s *Store) Book(ctx context.Context, username string, id int64) (Book, error) {
+	row, err := s.q.GetBook(ctx, dbq.GetBookParams{Username: username, ID: id})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Book{}, ErrUnknownBook
+	}
+	if err != nil {
+		return Book{}, err
+	}
+	b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title}
+	if err := json.Unmarshal([]byte(row.Authors), &b.Authors); err != nil {
+		return Book{}, fmt.Errorf("book %d authors: %w", row.ID, err)
+	}
+	return b, nil
 }
 
 func (s *Store) inTx(ctx context.Context, fn func(*dbq.Queries) error) error {

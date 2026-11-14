@@ -1,10 +1,15 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/wiloon/tomeshelf/internal/library"
 	"github.com/wiloon/tomeshelf/internal/store"
@@ -70,6 +75,44 @@ func (s *site) importBook(w http.ResponseWriter, r *http.Request) {
 	default:
 		s.apiError(w, err)
 	}
+}
+
+// thumbnail answers the cover thumbnail of a book in the signed-in user's
+// library. The session and the book's owner are checked before anything is
+// read, on every request, so neither a thumbnail cached on the server nor a
+// conditional request from a browser cache bypasses them. Browsers must
+// revalidate before each reuse, and shared caches must not store it.
+func (s *site) thumbnail(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireUser(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	thumb, err := s.books.Thumbnail(r.Context(), user, id)
+	switch {
+	case err == nil:
+	case errors.Is(err, store.ErrUnknownBook):
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	case errors.Is(err, library.ErrNoCover):
+		writeError(w, http.StatusNotFound, "This book has no cover.")
+		return
+	case errors.Is(err, context.Canceled) && r.Context().Err() != nil:
+		return
+	default:
+		s.apiError(w, err)
+		return
+	}
+	sum := sha256.Sum256(thumb)
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, no-cache")
+	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:16])+`"`)
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(thumb))
 }
 
 // requireUser returns the signed-in username, or answers 401 and false.

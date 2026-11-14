@@ -44,6 +44,7 @@ func New(build fs.FS, logger *slog.Logger, accounts Accounts, books *library.Lib
 	mux.HandleFunc("GET /api/me", s.me)
 	mux.HandleFunc("GET /api/books", s.listBooks)
 	mux.HandleFunc("POST /api/books", s.importBook)
+	mux.HandleFunc("GET /api/books/{id}/thumbnail", s.thumbnail)
 	mux.HandleFunc("/api/", s.apiNotFound)
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("GET /signin", s.signInPage)

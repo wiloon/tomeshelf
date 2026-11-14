@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 
 export type TestServer = {
   url: string;
+  dataDir: string;
   stop: () => Promise<void>;
 };
 
@@ -52,6 +53,7 @@ export async function startServer(): Promise<TestServer> {
     });
     return {
       url: `http://${addr}`,
+      dataDir,
       stop: async () => {
         child.kill("SIGTERM");
         await exited;
