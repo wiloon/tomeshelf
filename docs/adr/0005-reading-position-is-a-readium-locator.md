@@ -10,7 +10,7 @@ tomeshelf stores each user's reading position on the server, shaped as a Readium
 
 The fields are measured like this, so that every device computes and resolves them the same way:
 
-- **Anchor.** The position is the first block whose box reaches below the top of the viewport, and the character offset is that of the first character of it visible at the top of the viewport (0 when the block's top is in view).
+- **Anchor.** The position is the first visible character: the first non-whitespace character of the article, in document order, whose box reaches below the top of the viewport and starts above its bottom. The block is the innermost numbered block containing that character (a `p` inside an `li` is the `p`; text of the `li` outside the `p` is the `li`), and the character offset is that character's offset within the block. Text in no numbered block stores no block and offset, only the quote and the progressions. When no character is visible (an image fills the viewport, or the document has no text), the position is the progressions alone. Restoring skips the methods whose fields are missing and puts the anchored character at the top of the viewport.
 - **Text.** Character offsets count UTF-16 code units of the block's `textContent`: every descendant text node in document order, whatever markup nests it, with whitespace kept as it is.
 - **Quote.** `highlight` is up to 64 characters of the article's `textContent` starting at the anchor; `before` and `after` are up to 32 characters on each side. When the quote occurs more than once in the document, restoring picks the occurrence whose block is nearest the stored block.
 - **Progression** within the document is how far it is scrolled, from 0 at its top to 1 when its end is in view: the scroll offset past the article's top divided by the article's height minus the viewport's height, clamped to 0..1 (1 when the article fits in the viewport).
@@ -18,7 +18,7 @@ The fields are measured like this, so that every device computes and resolves th
 
 The library reaches a book through a resume address, `/books/:id/read`, which opens the stored document's address at the stored position, or the first document's top when there is none. A document's own address always opens that document as addressed, at its top or its fragment, and never jumps to the stored position: following Previous, Next, a table of contents entry or a link is the reader's explicit choice.
 
-Each user has one reading position per book. The last save the server accepts wins, across tabs and devices. Within one tab, saves carry an increasing sequence number and the server ignores a save from the same tab as the stored position with a sequence number no greater than the stored one's, so a slow request cannot overwrite a newer position.
+Each user has one reading position per book. The last save the server accepts wins, across tabs and devices. Within one tab, saves carry an increasing sequence number. The server keeps, per user, book and tab, the highest sequence number it has accepted, apart from the stored position, and ignores a save whose sequence number is no greater than its tab's highest, so a slow request cannot overwrite a newer position, even after another tab has saved in between.
 
 ## Considered Options
 
@@ -35,3 +35,4 @@ Each user has one reading position per book. The last save the server accepts wi
 ## Revisions
 
 - 2026-11-14, issue #10: defined how the anchor, character offset, quote and progressions are measured, weighted total progression by document size, added the resume address that is the only way a stored position is applied, and chose last-save-wins with per-tab ordering, since these decide what is stored and what every device restores.
+- 2026-11-14, issue #10 (spec review round 2): the anchor is now the first visible character and its innermost numbered block, since an enclosing `li` can start far above the visible text, and text outside numbered blocks or a viewport with no text stores fewer fields; the server tracks each tab's highest accepted sequence number separately from the stored position, since comparing only with the stored position let a delayed save overwrite newer ones once another tab had saved.
