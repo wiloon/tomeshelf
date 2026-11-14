@@ -1057,3 +1057,94 @@ test("saved settings that arrive before the document are there on its first rend
     )
     .toBeLessThan(2);
 });
+
+test("a load started during a save cannot overwrite the saved choice", async ({
+  page,
+}) => {
+  await importSemantics(page);
+  const puts = await hold(page, "PUT");
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect.poll(() => puts.length).toBe(1);
+  const gets = await hold(page, "GET");
+  await page.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("link", { name: new RegExp(title) }).click();
+  await expect.poll(() => gets.length).toBe(1);
+  const old = await gets[0].fetch();
+  await puts[0].continue();
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 19 });
+  await gets[0].fulfill({ response: old });
+  await page.waitForTimeout(200);
+  await expect(article(page)).toHaveCSS("font-size", "19px");
+});
+
+test("a failed save cannot follow a different user into their session", async ({
+  page,
+  server,
+}) => {
+  await importSemantics(page);
+  await page.route("**/api/settings", (route) =>
+    route.request().method() === "PUT"
+      ? route.fulfill({ status: 500 })
+      : route.fallback(),
+  );
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect(panel.getByText("Not saved")).toBeVisible();
+  await page.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await page.context().addCookies([
+    {
+      name: "tomeshelf_session",
+      value: addReader(server, "other"),
+      url: server.url,
+    },
+  ]);
+  await page.unrouteAll();
+  await page.evaluate(() => {
+    history.pushState({}, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "semantics.epub"));
+  await expect(page.getByRole("status")).toHaveText(`Imported ${title}.`);
+  await page.getByRole("link", { name: new RegExp(title) }).click();
+  await expect(article(page)).toContainText(documents.poetry.text);
+  const otherPanel = await openSettings(page);
+  await expect(
+    otherPanel.getByRole("status", { name: "Font size" }),
+  ).toHaveText("18 px");
+  await expect(otherPanel.getByRole("button", { name: "Retry" })).toHaveCount(
+    0,
+  );
+  expect(await saved(page.request)).toEqual(defaults);
+});
+
+test("signing out discards saves waiting behind an in-flight save", async ({
+  page,
+  server,
+}) => {
+  await importSemantics(page);
+  const puts = await hold(page, "PUT");
+  const panel = await openSettings(page);
+  const increase = panel.getByRole("button", { name: "Increase font size" });
+  await increase.click();
+  await expect.poll(() => puts.length).toBe(1);
+  await increase.click();
+  await page.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await page.context().addCookies([
+    {
+      name: "tomeshelf_session",
+      value: addReader(server, "other"),
+      url: server.url,
+    },
+  ]);
+  await puts[0].fulfill({ status: 204 });
+  await page.waitForTimeout(800);
+  expect(puts).toHaveLength(1);
+  expect(await saved(page.request)).toEqual(defaults);
+});

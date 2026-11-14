@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"io"
 	"math"
 	"net/http"
 	"slices"
@@ -87,8 +87,11 @@ func (s *site) putSettings(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	dec.DisallowUnknownFields()
 	err := dec.Decode(&body)
-	if err == nil && dec.More() {
-		err = errors.New("more than one JSON value")
+	if err == nil {
+		var extra any
+		if end := dec.Decode(&extra); end != io.EOF {
+			err = io.ErrUnexpectedEOF
+		}
 	}
 	rs, valid := validSettings(body)
 	if err != nil || !valid {

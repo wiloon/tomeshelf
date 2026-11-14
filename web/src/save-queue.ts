@@ -12,6 +12,7 @@ export type SaveQueue<T> = {
   // Saves the current value again after a failed save.
   retry: () => void;
   status: () => SaveStatus;
+  dispose: () => void;
 };
 
 // Saves the latest value, debounced, with one save in flight at most, so the
@@ -28,6 +29,7 @@ export function createSaveQueue<T>({
   send: (value: T) => Promise<void>;
   onStatus?: (status: SaveStatus) => void;
 }): SaveQueue<T> {
+  let disposed = false;
   let current: T | undefined;
   let pending = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -57,6 +59,7 @@ export function createSaveQueue<T>({
   };
 
   const finished = (ok: boolean) => {
+    if (disposed) return;
     inFlight--;
     failed = !ok;
     if (inFlight === 0 && overlapped) {
@@ -124,5 +127,10 @@ export function createSaveQueue<T>({
       report();
     },
     status,
+    dispose() {
+      disposed = true;
+      pending = false;
+      stopTimer();
+    },
   };
 }

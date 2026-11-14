@@ -84,6 +84,8 @@ func TestInvalidSettingsAreRefusedAndStoreNothing(t *testing.T) {
 
 	for name, body := range map[string]string{
 		"not JSON":              `font size 20`,
+		"trailing bracket":      saved + `]`,
+		"trailing brace":        saved + `}`,
 		"not an object":         `[20, 1.8, 40, "sepia"]`,
 		"missing font size":     `{"lineHeight":1.8,"width":40,"theme":"sepia"}`,
 		"missing line height":   `{"fontSize":20,"width":40,"theme":"sepia"}`,

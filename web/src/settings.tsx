@@ -51,6 +51,7 @@ type SettingsState = {
   loadFailed: boolean;
   saveStatus: SaveStatus;
   retry: () => void;
+  reset: () => void;
 };
 
 const SettingsContext = createContext<SettingsState | null>(null);
@@ -80,6 +81,21 @@ async function putSettings(settings: ReadingSettings) {
 // between pages neither drops a save nor loses a change, and the next reader
 // opened uses the current settings at once.
 export function SettingsProvider({ children }: { children: ReactNode }) {
+  const [generation, setGeneration] = useState(0);
+  return (
+    <SettingsSession key={generation} reset={() => setGeneration((n) => n + 1)}>
+      {children}
+    </SettingsSession>
+  );
+}
+
+function SettingsSession({
+  children,
+  reset,
+}: {
+  children: ReactNode;
+  reset: () => void;
+}) {
   const [settings, setLocal] = useState(defaultSettings);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [loadFailed, setLoadFailed] = useState(false);
@@ -119,13 +135,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const load = useCallback(() => {
     let ignored = false;
     const changesBefore = changes.current;
+    const saveOutstanding = queue.status() !== "saved";
     fetchSettings().then(
       (saved) => {
         if (ignored) {
           return;
         }
         setLoadFailed(false);
-        if (changes.current === changesBefore && queue.status() === "saved") {
+        if (
+          !saveOutstanding &&
+          changes.current === changesBefore &&
+          queue.status() === "saved"
+        ) {
           setLocal(saved);
         }
       },
@@ -149,6 +170,10 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         loadFailed,
         saveStatus,
         retry: queue.retry,
+        reset: () => {
+          queue.dispose();
+          reset();
+        },
       }}
     >
       {children}
