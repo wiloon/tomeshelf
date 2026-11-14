@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { keepingAnchor } from "./anchor";
 import {
   contentId,
   type DocumentPlace,
@@ -23,6 +24,14 @@ import {
   renderDocument,
   tocEntryURL,
 } from "./navigator";
+import {
+  applyToPage,
+  changesLayout,
+  clearFromPage,
+  type ReadingSettings,
+  SettingsPanel,
+  useReadingSettings,
+} from "./settings";
 
 const route = getRouteApi("/books/$id/read/$n");
 
@@ -184,7 +193,7 @@ function TableOfContents({
           event.currentTarget.close();
         }
       }}
-      className="h-full max-h-full w-full max-w-sm overflow-y-auto bg-stone-50 text-stone-900 shadow-xl backdrop:bg-black/40"
+      className="h-full max-h-full w-full max-w-sm overflow-y-auto bg-(--page-bg) text-(--page-fg) shadow-xl backdrop:bg-black/40"
     >
       <div className="flex min-h-full flex-col gap-4 p-4">
         <div className="flex items-center justify-between gap-4">
@@ -209,6 +218,33 @@ function TableOfContents({
   );
 }
 
+// Applies the reading settings while the reader is open. A change that
+// reflows the text keeps the element at the top of the viewport in place; a
+// theme change does not scroll.
+function useSettingsOnPage(settings: ReadingSettings) {
+  const applied = useRef<ReadingSettings | null>(null);
+
+  useLayoutEffect(() => {
+    const previous = applied.current;
+    applied.current = settings;
+    if (previous && changesLayout(previous, settings)) {
+      keepingAnchor(document.getElementById(contentId), () =>
+        applyToPage(settings),
+      );
+    } else {
+      applyToPage(settings);
+    }
+  }, [settings]);
+
+  useLayoutEffect(
+    () => () => {
+      applied.current = null;
+      clearFromPage();
+    },
+    [],
+  );
+}
+
 export function ReaderPage() {
   const { id, n: param } = route.useParams();
   const n = /^[1-9]\d*$/.test(param) ? Number(param) : 0;
@@ -229,6 +265,14 @@ export function ReaderPage() {
     staleTime: Number.POSITIVE_INFINITY,
   });
   const [contentsOpen, setContentsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const { settings } = useReadingSettings();
+  useSettingsOnPage(settings);
+  const closeSettings = () => {
+    setSettingsOpen(false);
+    settingsButton.current?.focus({ preventScroll: true });
+  };
 
   const notFound = (
     <Problem text="This book or document was not found in your library." />
@@ -253,14 +297,29 @@ export function ReaderPage() {
           <Link to="/" className="underline">
             Library
           </Link>
-          <button
-            type="button"
-            onClick={() => setContentsOpen(true)}
-            className="underline"
-          >
-            Contents
-          </button>
+          <div className="flex gap-4">
+            <button
+              type="button"
+              onClick={() => setContentsOpen(true)}
+              className="underline"
+            >
+              Contents
+            </button>
+            <button
+              ref={settingsButton}
+              type="button"
+              aria-expanded={settingsOpen}
+              aria-controls={settingsOpen ? "reading-settings" : undefined}
+              onClick={() => setSettingsOpen(!settingsOpen)}
+              className="underline"
+            >
+              Settings
+            </button>
+          </div>
         </div>
+        {settingsOpen && (
+          <SettingsPanel id="reading-settings" onClose={closeSettings} />
+        )}
         <h2 className="text-lg font-semibold">
           {typeof manifest.data.metadata.title === "string"
             ? manifest.data.metadata.title

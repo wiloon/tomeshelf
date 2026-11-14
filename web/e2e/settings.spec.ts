@@ -24,6 +24,8 @@ const documents = {
   epigraph: { n: 3, text: "Something will come of this." },
   dedication: { n: 4, text: "To the reader who reads to the end." },
   common: { n: 5, text: "Common Elements" },
+  long: { n: 6, text: "Long document paragraph 80." },
+  short: { n: 7, text: "Short document paragraph 12." },
 };
 
 // Creates the admin, imports the semantics fixture and returns its book id.
@@ -293,5 +295,317 @@ test("letters, epigraphs and dedications are set apart as their semantics say", 
     for (const margin of space) {
       expect(margin, at).toBeGreaterThanOrEqual(2 * em);
     }
+  }
+});
+
+async function openSettings(page: Page) {
+  await page.getByRole("button", { name: "Settings" }).click();
+  const panel = page.getByRole("dialog", { name: "Reading settings" });
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
+function scrollY(page: Page): Promise<number> {
+  return page.evaluate(() => window.scrollY);
+}
+
+// Scrolls so that the top edge of the viewport is the given fraction of the
+// way into the element, and returns the fraction the browser settled on.
+async function scrollInto(
+  page: Page,
+  selector: string,
+  fraction: number,
+): Promise<number> {
+  return page.locator(selector).evaluate((el, f) => {
+    const box = el.getBoundingClientRect();
+    window.scrollTo({
+      top: window.scrollY + box.top + f * box.height,
+      behavior: "instant",
+    });
+    const after = el.getBoundingClientRect();
+    return -after.top / after.height;
+  }, fraction);
+}
+
+// Expects the element to cross the top edge at the fraction, within a pixel
+// or two of rounding.
+async function expectAtTop(page: Page, selector: string, fraction: number) {
+  const { top, height } = await box(page, selector).then((r) => ({
+    top: r.top,
+    height: r.bottom - r.top,
+  }));
+  expect(Math.abs(top + fraction * height), selector).toBeLessThan(2);
+}
+
+test("each setting changes the reading page through its control, and other pages keep their colours", async ({
+  page,
+}) => {
+  await importSemantics(page);
+  await page.goto("/");
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "reader.epub"));
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported A Hand-Made Reading Book.",
+  );
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
+  await expect(article(page)).toContainText("Document One");
+  const looks = () =>
+    page.evaluate(() => {
+      const style = (el: Element | null | undefined) =>
+        el ? getComputedStyle(el) : null;
+      const query = (selector: string) => document.querySelector(selector);
+      const width = (selector: string) =>
+        query(selector)?.getBoundingClientRect().width;
+      return {
+        fontSize: style(query("#tomeshelf-content"))?.fontSize,
+        lineHeight: style(query("#tomeshelf-content"))?.lineHeight,
+        width: width("#tomeshelf-content"),
+        controls: width("nav[aria-label='Reading order']"),
+        page: style(query("header")?.parentElement)?.backgroundColor,
+        header: style(query("header"))?.borderBottomColor,
+        text: style(query("#tomeshelf-content"))?.color,
+        link: style(query("#tomeshelf-content a[href]"))?.color,
+        panel: style(query("dialog[aria-label='Reading settings']"))
+          ?.backgroundColor,
+      };
+    });
+  const panel = await openSettings(page);
+  const value = (name: string) => panel.getByRole("status", { name });
+  const light = await looks();
+  expect(light).toMatchObject({
+    fontSize: "18px",
+    lineHeight: "28.8px",
+    width: 608,
+    controls: 608,
+  });
+
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect(value("Font size")).toHaveText("20 px");
+  await panel.getByRole("button", { name: "Increase line height" }).click();
+  await expect(value("Line height")).toHaveText("1.7");
+  await panel.getByRole("button", { name: "Decrease text width" }).click();
+  await panel.getByRole("button", { name: "Decrease text width" }).click();
+  await expect(value("Text width")).toHaveText("34 rem");
+  expect(await looks()).toMatchObject({
+    fontSize: "20px",
+    lineHeight: "34px",
+    width: 544,
+    controls: 544,
+  });
+
+  const colours = (l: Awaited<ReturnType<typeof looks>>) => [
+    l.page,
+    l.header,
+    l.text,
+    l.link,
+    l.panel,
+  ];
+  await panel.getByRole("radio", { name: "Dark" }).check();
+  const dark = await looks();
+  await panel.getByRole("radio", { name: "Sepia" }).check();
+  const sepia = await looks();
+  for (const [i, part] of [
+    "page",
+    "header",
+    "text",
+    "link",
+    "panel",
+  ].entries()) {
+    const seen = [light, dark, sepia].map((l) => colours(l)[i]);
+    expect(new Set(seen).size, `${part} colour per theme`).toBe(3);
+  }
+
+  await page.getByRole("link", { name: "Library" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  expect(
+    await page
+      .locator("header")
+      .evaluate(
+        (el) =>
+          el.parentElement &&
+          getComputedStyle(el.parentElement).backgroundColor,
+      ),
+  ).toBe(light.page);
+});
+
+test("a font size, line height or width change keeps the block at the top edge, and a theme change does not scroll", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openDocument(page, id, documents.long);
+  const panel = await openSettings(page);
+  const block = "#long > p:nth-of-type(20)";
+  const fraction = await scrollInto(page, block, 0.4);
+
+  // Narrowing to 28 rem rewraps the paragraphs above the block.
+  for (const [name, clicks] of [
+    ["Increase font size", 1],
+    ["Increase line height", 1],
+    ["Decrease text width", 5],
+  ] as const) {
+    const before = await scrollY(page);
+    for (let i = 0; i < clicks; i++) {
+      await panel.getByRole("button", { name }).click();
+      await expectAtTop(page, block, fraction);
+    }
+    expect(await scrollY(page), name).not.toBe(before);
+  }
+
+  const before = await scrollY(page);
+  await panel.getByRole("radio", { name: "Dark" }).check();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reading-theme",
+    "dark",
+  );
+  expect(await scrollY(page)).toBe(before);
+});
+
+test("the anchor is the image, the table or the next block at the top edge, and the header keeps its offset", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openDocument(page, id, documents.long);
+  await expect
+    .poll(() =>
+      page
+        .locator("#tall")
+        .evaluate((img: HTMLImageElement) => img.complete && img.naturalHeight),
+    )
+    .toBeGreaterThan(0);
+  const panel = await openSettings(page);
+  const larger = panel.getByRole("button", { name: "Increase font size" });
+
+  let fraction = await scrollInto(page, "#tall", 0.3);
+  await larger.click();
+  await expectAtTop(page, "#tall", fraction);
+
+  const cell = "#tall-table tr:nth-of-type(5) td:nth-of-type(1) p";
+  await scrollInto(page, cell, 0.5);
+  const table = await box(page, "#tall-table");
+  fraction = -table.top / (table.bottom - table.top);
+  await larger.click();
+  await expectAtTop(page, "#tall-table", fraction);
+
+  const next = "#long > p:nth-of-type(11)";
+  await page.locator(next).evaluate((el) => {
+    const gap =
+      el.getBoundingClientRect().top -
+      (el.previousElementSibling as Element).getBoundingClientRect().bottom;
+    window.scrollTo({
+      top: window.scrollY + el.getBoundingClientRect().top - gap / 2,
+      behavior: "instant",
+    });
+  });
+  expect((await box(page, next)).top).toBeGreaterThan(0);
+  await larger.click();
+  await expectAtTop(page, next, 0);
+
+  await page.evaluate(() => window.scrollTo({ top: 5, behavior: "instant" }));
+  await larger.click();
+  await expect(article(page)).toHaveCSS("font-size", "22px");
+  expect(await scrollY(page)).toBe(5);
+  expect((await box(page, "header")).bottom).toBeGreaterThan(0);
+
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+  await larger.click();
+  await expect(article(page)).toHaveCSS("font-size", "23px");
+  expect(await scrollY(page)).toBe(0);
+});
+
+test("near the end of a short document, the page stops at its last offset with the anchor still visible", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await openDocument(page, id, documents.short);
+  const panel = await openSettings(page);
+  const bottom = () =>
+    page.evaluate(
+      () => document.documentElement.scrollHeight - window.innerHeight,
+    );
+  await page.evaluate(() =>
+    window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior: "instant",
+    }),
+  );
+  expect(await scrollY(page)).toBe(await bottom());
+  const anchor = await page.evaluate(() =>
+    [...document.querySelectorAll("#short > p")].findIndex(
+      (p) => p.getBoundingClientRect().bottom > 0,
+    ),
+  );
+  expect(anchor).toBeGreaterThan(0);
+
+  await panel.getByRole("button", { name: "Decrease font size" }).click();
+  await expect(article(page)).toHaveCSS("font-size", "17px");
+  expect(await bottom()).toBeGreaterThan(0);
+  expect(await scrollY(page)).toBe(await bottom());
+  await expect(page.locator("#short > p").nth(anchor)).toBeInViewport();
+});
+
+test("the settings panel fits and works by click and keyboard at phone and desktop widths", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  for (const width of [375, 1280]) {
+    const at = `at ${width} px`;
+    await page.setViewportSize({ width, height: 800 });
+    await openDocument(page, id, documents.common);
+    await page.getByRole("button", { name: "Settings" }).focus();
+    await page.keyboard.press("Enter");
+    const panel = page.getByRole("dialog", { name: "Reading settings" });
+    await expect(panel, at).toBeVisible();
+    const fit = await panel.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return {
+        inside:
+          r.left >= 0 &&
+          r.top >= 0 &&
+          r.right <= window.innerWidth &&
+          r.bottom <= window.innerHeight,
+        overflow: document.documentElement.scrollWidth - window.innerWidth,
+      };
+    });
+    expect(fit, at).toEqual({ inside: true, overflow: 0 });
+
+    for (const [setting, start, up, down] of [
+      ["font size", "18 px", "19 px", "18 px"],
+      ["line height", "1.6", "1.7", "1.6"],
+      ["text width", "38 rem", "40 rem", "38 rem"],
+    ]) {
+      const value = panel.getByRole("status", { name: setting });
+      await expect(value, at).toHaveText(start);
+      await panel.getByRole("button", { name: `Increase ${setting}` }).click();
+      await expect(value, at).toHaveText(up);
+      await panel.getByRole("button", { name: `Decrease ${setting}` }).focus();
+      await page.keyboard.press("Enter");
+      await expect(value, at).toHaveText(down);
+    }
+
+    await panel.getByRole("radio", { name: "Sepia" }).click();
+    await expect(page.locator("html"), at).toHaveAttribute(
+      "data-reading-theme",
+      "sepia",
+    );
+    await page.keyboard.press("ArrowLeft");
+    await expect(panel.getByRole("radio", { name: "Dark" }), at).toBeChecked();
+    await page.keyboard.press("ArrowLeft");
+    await expect(panel.getByRole("radio", { name: "Light" }), at).toBeChecked();
+    await expect(page.locator("html"), at).toHaveAttribute(
+      "data-reading-theme",
+      "light",
+    );
+
+    await page.keyboard.press("Escape");
+    await expect(panel, at).toBeHidden();
+    await openSettings(page);
+    await panel.getByRole("button", { name: "Close" }).click();
+    await expect(panel, at).toBeHidden();
   }
 });
