@@ -125,7 +125,8 @@ export type DocumentPlace = {
 
 // Sanitizes one document of the book and renders it into target. The book's
 // stylesheets and style attributes are dropped (ADR-0003), and its URLs are
-// resolved against the document's path in the package.
+// resolved against the document's path in the package. epub:type and class
+// stay, for tomeshelf's own typography to match.
 export function renderDocument(
   target: HTMLElement,
   html: string,
@@ -147,6 +148,7 @@ export function renderDocument(
       "textarea",
     ],
     FORBID_ATTR: ["style"],
+    ADD_ATTR: ["epub:type"],
     RETURN_TRUSTED_TYPE: true,
     ...(policy && { TRUSTED_TYPES_POLICY: policy }),
   });
