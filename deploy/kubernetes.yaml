@@ -1,0 +1,74 @@
+# A minimal tomeshelf on Kubernetes: one replica on one ReadWriteOnce volume
+# (ADR-0008). Recreate stops the old pod before the new one starts, so two
+# pods never write the database at once. Put an Ingress or a reverse proxy
+# with TLS in front of the Service yourself.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tomeshelf-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tomeshelf
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tomeshelf
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tomeshelf
+    spec:
+      securityContext:
+        # The image runs as the nonroot user, uid 65532; fsGroup makes a fresh
+        # volume writable by it.
+        fsGroup: 65532
+      containers:
+        - name: tomeshelf
+          image: ghcr.io/wiloon/tomeshelf:latest
+          env:
+            - name: TOMESHELF_ADDR
+              value: ":8080"
+            - name: TOMESHELF_DATA
+              value: /var/lib/tomeshelf
+            - name: TOMESHELF_MAX_BOOK_MB
+              value: "200"
+          ports:
+            - name: http
+              containerPort: 8080
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/tomeshelf
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: tomeshelf-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tomeshelf
+spec:
+  selector:
+    app.kubernetes.io/name: tomeshelf
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
