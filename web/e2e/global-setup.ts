@@ -1,44 +1,27 @@
-import { spawn } from "node:child_process";
-import path from "node:path";
-import { createInterface } from "node:readline";
+import { request } from "@playwright/test";
+import { adminStorageState } from "../playwright.config";
+import { startServer } from "./server";
 
-// Starts the built tomeshelf binary on a free port and exposes its URL to the
-// tests as TOMESHELF_URL. Returns the teardown that stops it.
+const admin = { username: "admin", password: "e2e admin password" };
+
+// Starts the shared server for the signed-in specs, creates its admin, and
+// saves the admin's session as their storageState. Exposes the server's URL
+// as TOMESHELF_URL and returns the teardown that stops it.
 export default async function globalSetup() {
-  const bin =
-    process.env.TOMESHELF_BIN ??
-    path.resolve(import.meta.dirname, "../../bin/tomeshelf");
-  const child = spawn(bin, ["-addr", "127.0.0.1:0"], {
-    stdio: ["ignore", "inherit", "pipe"],
-  });
+  const server = await startServer();
+  try {
+    const api = await request.newContext({ baseURL: server.url });
+    const res = await api.post("/api/setup", { data: admin });
+    if (res.status() !== 201) {
+      throw new Error(`setup answered ${res.status()}: ${await res.text()}`);
+    }
+    await api.storageState({ path: adminStorageState });
+    await api.dispose();
+  } catch (err) {
+    await server.stop();
+    throw err;
+  }
 
-  const addr = await new Promise<string>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${bin} did not report its address in time`)),
-      15_000,
-    );
-    child.once("error", reject);
-    child.once("exit", (code) =>
-      reject(new Error(`${bin} exited early with code ${code}`)),
-    );
-    const lines = createInterface({ input: child.stderr });
-    lines.on("line", (line) => {
-      process.stderr.write(`${line}\n`);
-      try {
-        const entry = JSON.parse(line);
-        if (entry.msg === "listening" && typeof entry.addr === "string") {
-          clearTimeout(timer);
-          resolve(entry.addr);
-        }
-      } catch {
-        // Not a log entry; already echoed above.
-      }
-    });
-  });
-
-  process.env.TOMESHELF_URL = `http://${addr}`;
-
-  return async () => {
-    child.kill("SIGTERM");
-  };
+  process.env.TOMESHELF_URL = server.url;
+  return server.stop;
 }

@@ -24,6 +24,11 @@ tasks:
       - task: build:web
       - go build -o {{.BIN}} ./cmd/tomeshelf
 
+  generate:
+    desc: Regenerate the sqlc query code in internal/store/dbq from queries.sql and the migrations.
+    cmds:
+      - go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+
   test:go:
     desc: Check Go formatting, vet and run the Go tests.
     cmds:

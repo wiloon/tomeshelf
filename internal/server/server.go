@@ -17,9 +17,13 @@ const contentSecurityPolicy = "default-src 'self'; script-src 'self'; object-src
 
 const indexHTML = "index.html"
 
-// New returns the handler for the health endpoints and the browser app,
-// whose static build is read from build.
-func New(build fs.FS, logger *slog.Logger) http.Handler {
+// New returns the handler for the health endpoints, the sign-in API and the
+// browser app, whose static build is read from build. Everything outside the
+// health endpoints, the build's files, the setup and sign-in pages and their
+// API needs a signed-in session. Cross-origin browser requests that change
+// state are rejected.
+func New(build fs.FS, logger *slog.Logger, accounts Accounts) http.Handler {
+	s := &site{build: build, logger: logger, accounts: accounts}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeText(w, http.StatusOK, "ok")
@@ -31,42 +35,134 @@ func New(build fs.FS, logger *slog.Logger) http.Handler {
 		}
 		writeText(w, http.StatusOK, "ok")
 	})
-	mux.Handle("GET /", app(build, logger))
-	return mux
+	mux.HandleFunc("POST /api/setup", s.setup)
+	mux.HandleFunc("POST /api/session", s.signIn)
+	mux.HandleFunc("DELETE /api/session", s.signOut)
+	mux.HandleFunc("GET /api/me", s.me)
+	mux.HandleFunc("/api/", s.apiNotFound)
+	mux.HandleFunc("GET /setup", s.setupPage)
+	mux.HandleFunc("GET /signin", s.signInPage)
+	mux.HandleFunc("/", s.page)
+	return http.NewCrossOriginProtection().Handler(mux)
 }
 
-// app serves files from the build. Paths that name no file fall back to
-// index.html so the client router handles them, except asset paths, which 404.
-func app(build fs.FS, logger *slog.Logger) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
+type site struct {
+	build    fs.FS
+	logger   *slog.Logger
+	accounts Accounts
+}
 
-		name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
-		if name != "" && name != indexHTML {
-			info, err := fs.Stat(build, name)
-			if err == nil && !info.IsDir() {
-				http.ServeFileFS(w, r, build, name)
-				return
-			}
-			if isAssetPath(name) {
-				http.NotFound(w, r)
-				return
-			}
-		}
+// page serves a file from the build to anyone. A path that names no file is a
+// page: signed in, it gets index.html so the client router handles it;
+// signed out, it is sent to setup or sign-in. Asset paths that name no file
+// 404.
+func (s *site) page(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		writeText(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	setPageHeaders(w)
 
-		page, err := fs.ReadFile(build, indexHTML)
-		if err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				logger.Error("read index.html", "err", err)
-			}
-			writeText(w, http.StatusServiceUnavailable, "browser app build has no index.html")
+	name := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+	if name != "" && name != indexHTML {
+		info, err := fs.Stat(s.build, name)
+		if err == nil && !info.IsDir() {
+			http.ServeFileFS(w, r, s.build, name)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache")
-		_, _ = w.Write(page)
-	})
+		if isAssetPath(name) {
+			http.NotFound(w, r)
+			return
+		}
+	}
+
+	user, err := s.sessionUser(r)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if user == "" {
+		s.redirectSignedOut(w, r)
+		return
+	}
+	s.shell(w)
+}
+
+// setupPage serves the setup form until a user exists.
+func (s *site) setupPage(w http.ResponseWriter, r *http.Request) {
+	setPageHeaders(w)
+	hasUser, err := s.accounts.HasUser(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if !hasUser {
+		s.shell(w)
+		return
+	}
+	user, err := s.sessionUser(r)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if user != "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/signin", http.StatusSeeOther)
+}
+
+// signInPage serves the sign-in form to a signed-out user.
+func (s *site) signInPage(w http.ResponseWriter, r *http.Request) {
+	setPageHeaders(w)
+	user, err := s.sessionUser(r)
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if user != "" {
+		http.Redirect(w, r, "/", http.StatusSeeOther)
+		return
+	}
+	s.shell(w)
+}
+
+func (s *site) redirectSignedOut(w http.ResponseWriter, r *http.Request) {
+	hasUser, err := s.accounts.HasUser(r.Context())
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	if !hasUser {
+		http.Redirect(w, r, "/setup", http.StatusSeeOther)
+		return
+	}
+	http.Redirect(w, r, "/signin", http.StatusSeeOther)
+}
+
+func (s *site) shell(w http.ResponseWriter) {
+	page, err := fs.ReadFile(s.build, indexHTML)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			s.logger.Error("read index.html", "err", err)
+		}
+		writeText(w, http.StatusServiceUnavailable, "browser app build has no index.html")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	_, _ = w.Write(page)
+}
+
+func (s *site) internalError(w http.ResponseWriter, err error) {
+	s.logger.Error("request failed", "err", err)
+	writeText(w, http.StatusInternalServerError, "internal server error")
+}
+
+func setPageHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy", contentSecurityPolicy)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
 
 func isAssetPath(name string) bool {
