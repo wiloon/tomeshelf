@@ -43,6 +43,20 @@ function article(page: Page) {
   return page.locator("article#tomeshelf-content");
 }
 
+const contentsBook = {
+  file: "toc.epub",
+  title: "A Hand-Made Book With Contents",
+  text: "CHAPTER I.",
+};
+
+// Opens the table of contents panel and returns it.
+async function openContents(page: Page) {
+  await page.getByRole("button", { name: "Contents" }).click();
+  const panel = page.getByRole("navigation", { name: "Table of contents" });
+  await expect(panel).toBeVisible();
+  return panel;
+}
+
 function control(page: Page, name: "Previous" | "Next") {
   return page
     .getByRole("navigation", { name: "Reading order" })
@@ -308,6 +322,7 @@ test("links and images resolve against the document's path in the package", asyn
   );
   await expect(article(page)).toContainText("Document Two");
   await expect(page.locator("#second-target")).toBeInViewport();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await link("back-to-one").click();
   await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
   await expect(article(page)).toContainText("Document One");
@@ -533,4 +548,111 @@ test("a malicious book runs nothing and leaves nothing dangerous in the article"
   expect(await page.evaluate(() => "__pwned" in window)).toBe(false);
   expect(dialogs).toEqual([]);
   expect(popups).toEqual([]);
+});
+
+test("the table of contents lists the book's entries, nested, at phone and desktop widths", async ({
+  page,
+}) => {
+  const id = await openBook(page, contentsBook);
+  for (const width of [375, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`/books/${id}/read/1`);
+    await expect(article(page)).toContainText("CHAPTER I.");
+    const panel = await openContents(page);
+    const top = panel.getByRole("list").first();
+    await expect(top.locator(":scope > li")).toHaveCount(3);
+    const book = top.locator(":scope > li").first();
+    await expect(book.getByRole("link", { name: "The Book" })).toBeVisible();
+    await expect(book.getByRole("list").getByRole("link")).toHaveText([
+      "Chapter I",
+      "Chapter II",
+      "Chapter III",
+      "Chapter IV",
+    ]);
+    await expect(
+      panel.getByRole("link", { name: "Chapter IV" }),
+    ).toBeInViewport();
+    const overflow = await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
+    expect(overflow, `overflow at ${width} px`).toBe(0);
+    const right = await panel.evaluate(
+      (el) => el.getBoundingClientRect().right,
+    );
+    expect(right, `panel at ${width} px`).toBeLessThanOrEqual(width);
+  }
+});
+
+test("a table of contents entry opens its document at the entry's fragment", async ({
+  page,
+}) => {
+  const id = await openBook(page, contentsBook);
+  await control(page, "Next").click();
+  await expect(article(page)).toContainText("The notes begin.");
+
+  const panel = await openContents(page);
+  await panel.getByRole("link", { name: "Chapter III" }).click();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1#chapter-3$`));
+  await expect(panel).toBeHidden();
+  const heading = article(page).locator("h2#chapter-3");
+  await expect(heading).toBeInViewport();
+  await expect(article(page).locator("h1")).not.toBeInViewport();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+});
+
+test("a book with no table of contents says so", async ({ page }) => {
+  await openBook(page, {
+    file: "no-toc.epub",
+    title: "A Hand-Made Book Without Contents",
+    text: "A book with no table of contents.",
+  });
+  const panel = await openContents(page);
+  await expect(panel).toHaveText("This book has no table of contents.");
+  await expect(panel.getByRole("link")).toHaveCount(0);
+});
+
+test("an entry outside the reading order is plain text, and its child and sibling still open", async ({
+  page,
+}) => {
+  const id = await openBook(page, contentsBook);
+  let panel = await openContents(page);
+  const plates = panel.getByText("Plates", { exact: true });
+  await expect(plates).toBeVisible();
+  await expect(panel.getByRole("link", { name: "Plates" })).toHaveCount(0);
+  expect(await plates.evaluate((el) => el.closest("a"))).toBeNull();
+
+  await panel.getByRole("link", { name: "Notes" }).click();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  await expect(article(page)).toContainText("The notes begin.");
+
+  panel = await openContents(page);
+  await panel.getByRole("link", { name: "Afterword" }).click();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/3$`));
+  await expect(article(page)).toContainText("The afterword closes the book.");
+});
+
+test("a note reference opens the endnote, and Back returns to the reference", async ({
+  page,
+}) => {
+  const id = await openBook(page, contentsBook);
+  const reference = article(page).locator("a#ref-1");
+  await expect(reference).toHaveAttribute("href", `/books/${id}/read/2#note-1`);
+  await reference.scrollIntoViewIfNeeded();
+  await page.waitForTimeout(200);
+  const before = await page.evaluate(() => window.scrollY);
+  expect(before).toBeGreaterThan(0);
+
+  await reference.click();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2#note-1$`));
+  await expect(article(page)).toContainText("The first note, on the lantern.");
+  await expect(article(page).locator("#note-1")).toBeInViewport();
+  await expect(article(page).locator("h1")).not.toBeInViewport();
+
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+  await expect(article(page)).toContainText("CHAPTER I.");
+  await expect(reference).toBeInViewport();
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(before);
 });

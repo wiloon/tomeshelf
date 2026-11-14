@@ -1,10 +1,16 @@
 import DOMPurify, { type Config } from "dompurify";
 
-export type Link = { href: string; type?: string };
+export type Link = {
+  href: string;
+  type?: string;
+  title?: string;
+  children?: Link[];
+};
 
 export type Manifest = {
   metadata: { title: string | Record<string, string> };
   readingOrder: Link[];
+  toc?: Link[];
 };
 
 export class NotFoundError extends Error {}
@@ -59,6 +65,33 @@ export function packageURL(bookId: string, href: string): string {
 
 export function readingURL(bookId: string, n: number): string {
   return `/books/${bookId}/read/${n}`;
+}
+
+// The reading URL, fragment kept, of a table of contents entry's href, or
+// null when the href names no document in the reading order.
+export function tocEntryURL(
+  bookId: string,
+  readingOrder: Link[],
+  href: string,
+): string | null {
+  const url = resolve(href, new URL(packageBase));
+  return url ? documentURL(bookId, readingOrder, url) : null;
+}
+
+// The reading URL, fragment kept, of the document url names in the package,
+// or null when it names none in the reading order.
+function documentURL(
+  bookId: string,
+  readingOrder: Link[],
+  url: URL,
+): string | null {
+  if (url.origin !== packageOrigin) {
+    return null;
+  }
+  const index = readingOrder.findIndex(
+    (link) => new URL(link.href, packageBase).pathname === url.pathname,
+  );
+  return index < 0 ? null : `${readingURL(bookId, index + 1)}${url.hash}`;
 }
 
 export async function fetchManifest(bookId: string): Promise<Manifest> {
@@ -206,16 +239,8 @@ function resolveLink(
     return null;
   }
   if (url.origin === packageOrigin) {
-    const index = place.readingOrder.findIndex(
-      (link) => new URL(link.href, packageBase).pathname === url.pathname,
-    );
-    if (index < 0) {
-      return null;
-    }
-    return {
-      href: `${readingURL(place.bookId, index + 1)}${url.hash}`,
-      external: false,
-    };
+    const target = documentURL(place.bookId, place.readingOrder, url);
+    return target ? { href: target, external: false } : null;
   }
   if (externalSchemes.has(url.protocol)) {
     return { href: url.href, external: true };

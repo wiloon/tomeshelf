@@ -5,15 +5,23 @@ import {
   useLocation,
   useNavigate,
 } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useRef } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   contentId,
   type DocumentPlace,
   fetchDocument,
   fetchManifest,
+  type Link as ManifestLink,
   markReadingPage,
   NotFoundError,
   renderDocument,
+  tocEntryURL,
 } from "./navigator";
 
 const route = getRouteApi("/books/$id/read/$n");
@@ -28,6 +36,19 @@ function Problem({ text }: { text: string }) {
         Back to the library
       </Link>
     </div>
+  );
+}
+
+// A plain left click, which the app may take over; any other click keeps the
+// browser's own behaviour, such as opening a new tab.
+function isPlainClick(event: MouseEvent | ReactMouseEvent): boolean {
+  return !(
+    event.defaultPrevented ||
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
   );
 }
 
@@ -71,14 +92,7 @@ function BookDocument({ html, place }: { html: string; place: DocumentPlace }) {
       return;
     }
     const onClick = (event: MouseEvent) => {
-      if (
-        event.defaultPrevented ||
-        event.button !== 0 ||
-        event.metaKey ||
-        event.ctrlKey ||
-        event.shiftKey ||
-        event.altKey
-      ) {
+      if (!isPlainClick(event)) {
         return;
       }
       const link = (event.target as Element).closest("a");
@@ -94,6 +108,105 @@ function BookDocument({ html, place }: { html: string; place: DocumentPlace }) {
   }, [navigate]);
 
   return <article id={contentId} ref={ref} />;
+}
+
+// The book's table of contents, in a panel over the page and outside the
+// article. An entry whose href names no document in the reading order is
+// plain text; its children stay usable.
+function TableOfContents({
+  open,
+  onClose,
+  bookId,
+  readingOrder,
+  toc,
+}: {
+  open: boolean;
+  onClose: () => void;
+  bookId: string;
+  readingOrder: ManifestLink[];
+  toc: ManifestLink[];
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (open && !dialog?.open) {
+      dialog?.showModal();
+    } else if (!open && dialog?.open) {
+      dialog.close();
+    }
+  }, [open]);
+
+  const choose = (event: ReactMouseEvent, href: string) => {
+    if (!isPlainClick(event)) {
+      return;
+    }
+    event.preventDefault();
+    ref.current?.close();
+    void navigate({ href });
+  };
+
+  const list = (entries: ManifestLink[], nested = false) => (
+    <ol className={`flex flex-col gap-1 ${nested ? "mt-1 pl-4" : ""}`}>
+      {entries.map((entry, i) => {
+        const href = tocEntryURL(bookId, readingOrder, entry.href);
+        const title = entry.title ?? entry.href;
+        return (
+          // biome-ignore lint/suspicious/noArrayIndexKey: entries never move, and their hrefs may repeat.
+          <li key={i}>
+            {href ? (
+              <a
+                href={href}
+                onClick={(event) => choose(event, href)}
+                className="underline"
+              >
+                {title}
+              </a>
+            ) : (
+              <span>{title}</span>
+            )}
+            {entry.children?.length ? list(entry.children, true) : null}
+          </li>
+        );
+      })}
+    </ol>
+  );
+
+  return (
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape closes the dialog natively.
+    <dialog
+      ref={ref}
+      aria-label="Contents"
+      onClose={onClose}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          event.currentTarget.close();
+        }
+      }}
+      className="h-full max-h-full w-full max-w-sm overflow-y-auto bg-stone-50 text-stone-900 shadow-xl backdrop:bg-black/40"
+    >
+      <div className="flex min-h-full flex-col gap-4 p-4">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold">Contents</h2>
+          <button
+            type="button"
+            onClick={() => ref.current?.close()}
+            className="underline"
+          >
+            Close
+          </button>
+        </div>
+        <nav aria-label="Table of contents" className="break-words">
+          {toc.length > 0 ? (
+            list(toc)
+          ) : (
+            <p>This book has no table of contents.</p>
+          )}
+        </nav>
+      </div>
+    </dialog>
+  );
 }
 
 export function ReaderPage() {
@@ -115,6 +228,7 @@ export function ReaderPage() {
     retry: false,
     staleTime: Number.POSITIVE_INFINITY,
   });
+  const [contentsOpen, setContentsOpen] = useState(false);
 
   const notFound = (
     <Problem text="This book or document was not found in your library." />
@@ -135,9 +249,18 @@ export function ReaderPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <Link to="/" className="text-sm underline">
-          Library
-        </Link>
+        <div className="flex justify-between gap-4 text-sm">
+          <Link to="/" className="underline">
+            Library
+          </Link>
+          <button
+            type="button"
+            onClick={() => setContentsOpen(true)}
+            className="underline"
+          >
+            Contents
+          </button>
+        </div>
         <h2 className="text-lg font-semibold">
           {typeof manifest.data.metadata.title === "string"
             ? manifest.data.metadata.title
@@ -179,6 +302,13 @@ export function ReaderPage() {
           </Link>
         )}
       </nav>
+      <TableOfContents
+        open={contentsOpen}
+        onClose={() => setContentsOpen(false)}
+        bookId={id}
+        readingOrder={manifest.data.readingOrder}
+        toc={manifest.data.toc ?? []}
+      />
     </div>
   );
 }
