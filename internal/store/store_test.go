@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -19,6 +20,22 @@ func openStore(t *testing.T) (*store.Store, string) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	return st, path
+}
+
+func TestOpenEscapesSpecialCharactersInThePath(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a?b#c%20d")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "tomeshelf.db")
+	st, err := store.Open(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database not created at the requested path: %v", err)
+	}
 }
 
 func requireNoSession(t *testing.T, st *store.Store, token string) {

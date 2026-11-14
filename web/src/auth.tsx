@@ -139,8 +139,20 @@ export function Home() {
   const navigate = useNavigate();
   const me = useQuery({ queryKey: ["me"], queryFn: fetchMe });
 
+  const [error, setError] = useState<string | null>(null);
+
   async function signOut() {
-    await fetch("/api/session", { method: "DELETE" });
+    setError(null);
+    try {
+      const res = await fetch("/api/session", { method: "DELETE" });
+      if (!res.ok) {
+        setError(`Could not sign out (${res.status}). Please try again.`);
+        return;
+      }
+    } catch {
+      setError("tomeshelf could not be reached. Please try again.");
+      return;
+    }
     queryClient.clear();
     await navigate({ to: "/signin" });
   }
@@ -148,6 +160,11 @@ export function Home() {
   return (
     <div className="flex items-center gap-4">
       {me.data && <p>Signed in as {me.data.username}</p>}
+      {error && (
+        <p role="alert" className="text-red-700">
+          {error}
+        </p>
+      )}
       <button
         type="button"
         onClick={signOut}

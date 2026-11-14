@@ -66,7 +66,8 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	q.Add("_pragma", "busy_timeout(10000)")
 	q.Add("_pragma", "foreign_keys(1)")
 	q.Set("_txlock", "immediate")
-	db, err := sql.Open("sqlite", "file:"+path+"?"+q.Encode())
+	u := url.URL{Scheme: "file", Opaque: (&url.URL{Path: path}).EscapedPath(), RawQuery: q.Encode()}
+	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
 		return nil, err
 	}
