@@ -9,6 +9,17 @@ import (
 	"context"
 )
 
+const bookFileNamed = `-- name: BookFileNamed :one
+SELECT EXISTS (SELECT 1 FROM books WHERE sha256 = ?)
+`
+
+func (q *Queries) BookFileNamed(ctx context.Context, sha256 string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, bookFileNamed, sha256)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countUsers = `-- name: CountUsers :one
 SELECT count(*) FROM users
 `
@@ -18,6 +29,24 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const deleteBook = `-- name: DeleteBook :one
+DELETE FROM books
+WHERE books.id = ?1 AND books.user_id = (SELECT users.id FROM users WHERE users.username = ?2)
+RETURNING sha256
+`
+
+type DeleteBookParams struct {
+	ID       int64
+	Username string
+}
+
+func (q *Queries) DeleteBook(ctx context.Context, arg DeleteBookParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, deleteBook, arg.ID, arg.Username)
+	var sha256 string
+	err := row.Scan(&sha256)
+	return sha256, err
 }
 
 const deleteSession = `-- name: DeleteSession :exec

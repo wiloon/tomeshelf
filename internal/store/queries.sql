@@ -51,6 +51,14 @@ SELECT books.id, books.sha256, books.title, books.authors
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ? AND books.id = ?;
 
+-- name: DeleteBook :one
+DELETE FROM books
+WHERE books.id = sqlc.arg(id) AND books.user_id = (SELECT users.id FROM users WHERE users.username = sqlc.arg(username))
+RETURNING sha256;
+
+-- name: BookFileNamed :one
+SELECT EXISTS (SELECT 1 FROM books WHERE sha256 = ?);
+
 -- name: GetReadingSettings :one
 SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme
 FROM reading_settings JOIN users ON users.id = reading_settings.user_id

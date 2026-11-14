@@ -50,7 +50,7 @@ func (l *Library) PackageFile(ctx context.Context, username string, id int64, pa
 	if err != nil {
 		return nil, "", err
 	}
-	data, err := readEntry(original, path, maxPackageFileBytes)
+	data, err := l.readEntry(original, path, maxPackageFileBytes)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, "", ErrNoFile
 	}
