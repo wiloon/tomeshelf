@@ -223,6 +223,7 @@ function TableOfContents({
 // theme change does not scroll.
 function useSettingsOnPage(settings: ReadingSettings) {
   const applied = useRef<ReadingSettings | null>(null);
+  const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
     const previous = applied.current;
@@ -234,6 +235,7 @@ function useSettingsOnPage(settings: ReadingSettings) {
     } else {
       applyToPage(settings);
     }
+    setReady(true);
   }, [settings]);
 
   useLayoutEffect(
@@ -243,6 +245,7 @@ function useSettingsOnPage(settings: ReadingSettings) {
     },
     [],
   );
+  return ready;
 }
 
 export function ReaderPage() {
@@ -268,7 +271,7 @@ export function ReaderPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const { settings } = useReadingSettings();
-  useSettingsOnPage(settings);
+  const settingsReady = useSettingsOnPage(settings);
   const closeSettings = () => {
     setSettingsOpen(false);
     settingsButton.current?.focus({ preventScroll: true });
@@ -330,7 +333,7 @@ export function ReaderPage() {
         <Problem text="This document could not be loaded. Please try again." />
       )}
       {doc.isPending && <p role="status">Loading…</p>}
-      {doc.data !== undefined && (
+      {settingsReady && doc.data !== undefined && (
         <BookDocument
           html={doc.data}
           place={{ bookId: id, readingOrder: manifest.data.readingOrder, n }}

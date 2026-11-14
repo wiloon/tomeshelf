@@ -609,3 +609,48 @@ test("the settings panel fits and works by click and keyboard at phone and deskt
     await expect(panel, at).toBeHidden();
   }
 });
+
+test("returning to a cached document scrolls its fragment after retained settings apply", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await page.goto(`/books/${id}/read/6#tall-table`);
+  const target = page.locator("#tall-table");
+  await expect(target).toBeVisible();
+  await page.getByRole("button", { name: "Settings" }).click();
+  const increase = page.getByRole("button", { name: "Increase font size" });
+  for (let i = 0; i < 10; i++) await increase.click();
+  await page.evaluate(() => {
+    history.scrollRestoration = "manual";
+    document.documentElement.style.overflowAnchor = "none";
+  });
+  await page.getByRole("link", { name: "Library" }).click();
+  await expect(page.getByLabel("Import an EPUB")).toBeVisible();
+  await expect(page.locator("html")).not.toHaveAttribute("data-reading-theme");
+  await page.evaluate(() => {
+    const original = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = function (...args) {
+      if (
+        this.id === "tall-table" &&
+        !document.documentElement.dataset.fragmentScrollFont
+      ) {
+        document.documentElement.dataset.fragmentScrollFont =
+          getComputedStyle(this).fontSize;
+      }
+      original.apply(this, args);
+    };
+  });
+  await page.evaluate((url) => {
+    history.pushState({}, "", url);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }, `/books/${id}/read/6#tall-table`);
+  await expect(target).toBeVisible();
+  expect(await fontSize(page, "#tomeshelf-content")).toBe(28);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-fragment-scroll-font",
+    "28px",
+  );
+  await expect
+    .poll(async () => Math.abs((await target.boundingBox())?.y ?? 999))
+    .toBeLessThan(2);
+});
