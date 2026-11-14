@@ -79,3 +79,110 @@
 #tomeshelf-content table {
   display: block;
 }
+
+#tomeshelf-content :where(th, td) {
+  padding: 0.25em 0.5em;
+  border: 1px solid var(--color-stone-300);
+  text-align: start;
+  vertical-align: top;
+}
+
+#tomeshelf-content :where(th, td) > :where(p) {
+  margin-block: 0;
+}
+
+#tomeshelf-content figure {
+  text-align: center;
+}
+
+#tomeshelf-content figure :where(img, svg, video) {
+  margin-inline: auto;
+}
+
+#tomeshelf-content figcaption {
+  margin-block-start: 0.5em;
+  font-size: 0.875em;
+}
+
+/* The epub:type semantics Standard Ebooks marks up. Poetry, verse and songs
+   set each stanza as a p and each line as a span followed by a br. */
+#tomeshelf-content
+  :is(
+    [epub\:type~="z3998:poem"],
+    [epub\:type~="z3998:verse"],
+    [epub\:type~="z3998:song"]
+  )
+  p {
+  text-align: start;
+  text-indent: 0;
+
+  /* A line that wraps hangs 1em under its first line. */
+  & > span {
+    display: block;
+    padding-inline-start: 1em;
+    text-indent: -1em;
+  }
+
+  & > span + br {
+    display: none;
+  }
+
+  & > span.i1 {
+    padding-inline-start: 2em;
+  }
+  & > span.i2 {
+    padding-inline-start: 3em;
+  }
+  & > span.i3 {
+    padding-inline-start: 4em;
+  }
+  & > span.i4 {
+    padding-inline-start: 5em;
+  }
+  & > span.i5 {
+    padding-inline-start: 6em;
+  }
+  & > span.i6 {
+    padding-inline-start: 7em;
+  }
+  & > span.i7 {
+    padding-inline-start: 8em;
+  }
+  & > span.i8 {
+    padding-inline-start: 9em;
+  }
+  & > span.i9 {
+    padding-inline-start: 10em;
+  }
+}
+
+#tomeshelf-content [epub\:type~="z3998:letter"] {
+  margin-inline: 1.5em;
+}
+
+#tomeshelf-content
+  :is(
+    [epub\:type~="z3998:salutation"],
+    [epub\:type~="z3998:valediction"],
+    [epub\:type~="z3998:signature"]
+  ) {
+  display: block;
+}
+
+#tomeshelf-content [epub\:type~="z3998:signature"] {
+  text-align: end;
+}
+
+#tomeshelf-content [epub\:type~="epigraph"]:not(section) {
+  margin-inline: 1.5em;
+}
+
+#tomeshelf-content [epub\:type~="epigraph"] cite {
+  display: block;
+  text-align: end;
+}
+
+#tomeshelf-content [epub\:type~="dedication"] {
+  margin-block: 3em;
+  text-align: center;
+}
