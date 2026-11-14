@@ -13,6 +13,14 @@ type Book struct {
 	ImportedAt int64
 }
 
+type ReadingSetting struct {
+	UserID     int64
+	FontSize   int64
+	LineHeight float64
+	Width      int64
+	Theme      string
+}
+
 type Session struct {
 	TokenHash []byte
 	UserID    int64

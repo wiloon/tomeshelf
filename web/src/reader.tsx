@@ -270,8 +270,9 @@ export function ReaderPage() {
   const [contentsOpen, setContentsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
-  const { settings } = useReadingSettings();
+  const { settings, load } = useReadingSettings();
   const settingsReady = useSettingsOnPage(settings);
+  useEffect(() => load(), [load]);
   const closeSettings = () => {
     setSettingsOpen(false);
     settingsButton.current?.focus({ preventScroll: true });

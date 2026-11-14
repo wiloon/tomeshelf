@@ -2,9 +2,13 @@ import {
   createContext,
   type KeyboardEvent,
   type ReactNode,
+  useCallback,
   useContext,
+  useEffect,
+  useRef,
   useState,
 } from "react";
+import { createSaveQueue, type SaveStatus } from "./save-queue";
 
 export type Theme = "light" | "dark" | "sepia";
 
@@ -38,17 +42,140 @@ const themes: { value: Theme; label: string }[] = [
 
 type SettingsState = {
   settings: ReadingSettings;
+  // The user's change: it applies at once and is saved.
   setSettings: (settings: ReadingSettings) => void;
+  // Fetches the saved settings and applies them, unless the user changed a
+  // setting meanwhile or a change is not saved yet. Returns a function that
+  // ignores the answer.
+  load: () => () => void;
+  loadFailed: boolean;
+  saveStatus: SaveStatus;
+  retry: () => void;
+  reset: () => void;
 };
 
 const SettingsContext = createContext<SettingsState | null>(null);
 
-// The reading settings live at the app level, so moving between pages keeps
-// them and the next reader opened uses them.
+async function fetchSettings(): Promise<ReadingSettings> {
+  const res = await fetch("/api/settings");
+  if (!res.ok) {
+    throw new Error(`/api/settings answered ${res.status}`);
+  }
+  return res.json();
+}
+
+// keepalive lets a save in flight outlive the page closing or reloading.
+async function putSettings(settings: ReadingSettings) {
+  const res = await fetch("/api/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(settings),
+    keepalive: true,
+  });
+  if (!res.ok) {
+    throw new Error(`/api/settings answered ${res.status}`);
+  }
+}
+
+// The reading settings and their save queue live at the app level, so moving
+// between pages neither drops a save nor loses a change, and the next reader
+// opened uses the current settings at once.
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState(defaultSettings);
+  const [generation, setGeneration] = useState(0);
   return (
-    <SettingsContext value={{ settings, setSettings }}>
+    <SettingsSession key={generation} reset={() => setGeneration((n) => n + 1)}>
+      {children}
+    </SettingsSession>
+  );
+}
+
+function SettingsSession({
+  children,
+  reset,
+}: {
+  children: ReactNode;
+  reset: () => void;
+}) {
+  const [settings, setLocal] = useState(defaultSettings);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const changes = useRef(0);
+  const [queue] = useState(() =>
+    createSaveQueue<ReadingSettings>({
+      delay: 500,
+      send: putSettings,
+      onStatus: setSaveStatus,
+    }),
+  );
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        queue.hidden();
+      }
+    };
+    const onPageHide = () => queue.pagehide();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+    };
+  }, [queue]);
+
+  const setSettings = useCallback(
+    (next: ReadingSettings) => {
+      changes.current++;
+      setLocal(next);
+      queue.change(next);
+    },
+    [queue],
+  );
+
+  const load = useCallback(() => {
+    let ignored = false;
+    const changesBefore = changes.current;
+    const saveOutstanding = queue.status() !== "saved";
+    fetchSettings().then(
+      (saved) => {
+        if (ignored) {
+          return;
+        }
+        setLoadFailed(false);
+        if (
+          !saveOutstanding &&
+          changes.current === changesBefore &&
+          queue.status() === "saved"
+        ) {
+          setLocal(saved);
+        }
+      },
+      () => {
+        if (!ignored) {
+          setLoadFailed(true);
+        }
+      },
+    );
+    return () => {
+      ignored = true;
+    };
+  }, [queue]);
+
+  return (
+    <SettingsContext
+      value={{
+        settings,
+        setSettings,
+        load,
+        loadFailed,
+        saveStatus,
+        retry: queue.retry,
+        reset: () => {
+          queue.dispose();
+          reset();
+        },
+      }}
+    >
       {children}
     </SettingsContext>
   );
@@ -154,7 +281,8 @@ export function SettingsPanel({
   id: string;
   onClose: () => void;
 }) {
-  const { settings, setSettings } = useReadingSettings();
+  const { settings, setSettings, loadFailed, saveStatus, retry } =
+    useReadingSettings();
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       onClose();
@@ -203,6 +331,18 @@ export function SettingsPanel({
             ))}
           </div>
         </fieldset>
+        <div aria-live="polite" className="flex flex-col gap-1 text-sm">
+          {loadFailed && <p>Your saved settings could not be loaded.</p>}
+          {saveStatus === "saving" && <p>Saving…</p>}
+          {saveStatus === "failed" && (
+            <p className="flex items-center gap-2">
+              Not saved
+              <button type="button" onClick={retry} className="underline">
+                Retry
+              </button>
+            </p>
+          )}
+        </div>
       </div>
     </dialog>
   );

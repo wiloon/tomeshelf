@@ -1,5 +1,15 @@
+import { createHash, randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { test as base, expect, type Page } from "@playwright/test";
+import { DatabaseSync } from "node:sqlite";
+import {
+  type APIRequestContext,
+  test as base,
+  expect,
+  type Page,
+  type Request,
+  type Route,
+} from "@playwright/test";
 import { startServer, type TestServer } from "./server";
 
 // Each attempt gets its own server, so the library starts empty.
@@ -39,8 +49,13 @@ async function importSemantics(page: Page): Promise<string> {
     .getByLabel("Import an EPUB")
     .setInputFiles(path.join(books, "semantics.epub"));
   await expect(page.getByRole("status")).toHaveText(`Imported ${title}.`);
+  const settingsLoaded = page.waitForResponse((res) =>
+    isSettings(res.request(), "GET"),
+  );
   await page.getByRole("link", { name: new RegExp(title) }).click();
   await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(article(page)).toContainText(documents.poetry.text);
+  await settingsLoaded;
   return new URL(page.url()).pathname.split("/")[2];
 }
 
@@ -653,4 +668,483 @@ test("returning to a cached document scrolls its fragment after retained setting
   await expect
     .poll(async () => Math.abs((await target.boundingBox())?.y ?? 999))
     .toBeLessThan(2);
+});
+
+type Settings = {
+  fontSize: number;
+  lineHeight: number;
+  width: number;
+  theme: string;
+};
+
+const defaults: Settings = {
+  fontSize: 18,
+  lineHeight: 1.6,
+  width: 38,
+  theme: "light",
+};
+
+async function saved(api: APIRequestContext): Promise<Settings> {
+  const res = await api.get("/api/settings");
+  expect(res.status()).toBe(200);
+  return res.json();
+}
+
+async function save(api: APIRequestContext, settings: Partial<Settings>) {
+  const res = await api.put("/api/settings", {
+    data: { ...defaults, ...settings },
+  });
+  expect(res.status()).toBe(204);
+}
+
+function isSettings(request: Request, method: string) {
+  return (
+    new URL(request.url()).pathname === "/api/settings" &&
+    request.method() === method
+  );
+}
+
+// Holds every settings request with the method until the test lets it
+// through.
+async function hold(page: Page, method: "GET" | "PUT"): Promise<Route[]> {
+  const held: Route[] = [];
+  await page.route("**/api/settings", (route) => {
+    if (route.request().method() !== method) {
+      return route.fallback();
+    }
+    held.push(route);
+  });
+  return held;
+}
+
+function sentFontSizes(routes: Route[]) {
+  return routes.map((r) => r.request().postDataJSON().fontSize);
+}
+
+// Adds a user with a session straight to the database, as only the admin
+// can be created through the app, and returns the session's token.
+function addReader(server: TestServer, username: string): string {
+  const db = new DatabaseSync(path.join(server.dataDir, "tomeshelf.db"));
+  try {
+    db.exec("PRAGMA busy_timeout = 10000");
+    const user = db
+      .prepare(
+        "INSERT INTO users (username, password_hash) VALUES (?, 'not a real hash') RETURNING id",
+      )
+      .get(username) as { id: number };
+    const token = randomBytes(32).toString("base64url");
+    db.prepare(
+      "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+    ).run(
+      createHash("sha256").update(token).digest(),
+      user.id,
+      Math.floor(Date.now() / 1000) + 3600,
+    );
+    return token;
+  } finally {
+    db.close();
+  }
+}
+
+test("a change survives a reload and opens on another device, while another user keeps the defaults", async ({
+  page,
+  browser,
+  server,
+}) => {
+  const id = await importSemantics(page);
+  await openDocument(page, id, documents.common);
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await panel.getByRole("radio", { name: "Dark" }).check();
+  await expect
+    .poll(() => saved(page.request))
+    .toEqual({ ...defaults, fontSize: 20, theme: "dark" });
+
+  await page.reload();
+  await expect(article(page)).toContainText(documents.common.text);
+  await expect(article(page)).toHaveCSS("font-size", "20px");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reading-theme",
+    "dark",
+  );
+
+  const device = await browser.newContext({
+    baseURL: server.url,
+    storageState: await page.context().storageState(),
+  });
+  const second = await device.newPage();
+  await openDocument(second, id, documents.common);
+  await expect(article(second)).toHaveCSS("font-size", "20px");
+  await expect(second.locator("html")).toHaveAttribute(
+    "data-reading-theme",
+    "dark",
+  );
+  await device.close();
+
+  const other = await browser.newContext({ baseURL: server.url });
+  await other.addCookies([
+    {
+      name: "tomeshelf_session",
+      value: addReader(server, "other"),
+      url: server.url,
+    },
+  ]);
+  const imported = await other.request.post("/api/books", {
+    data: await readFile(path.join(books, "semantics.epub")),
+    headers: { "Content-Type": "application/epub+zip" },
+  });
+  expect(imported.status()).toBe(201);
+  const othersPage = await other.newPage();
+  const loaded = othersPage.waitForResponse((res) =>
+    isSettings(res.request(), "GET"),
+  );
+  await openDocument(
+    othersPage,
+    String((await imported.json()).id),
+    documents.common,
+  );
+  expect((await loaded).status()).toBe(200);
+  await expect(article(othersPage)).toHaveCSS("font-size", "18px");
+  await expect(othersPage.locator("html")).toHaveAttribute(
+    "data-reading-theme",
+    "light",
+  );
+  await other.close();
+});
+
+test("a change made just before moving within the app, or before closing the page, is stored", async ({
+  page,
+  context,
+}) => {
+  const id = await importSemantics(page);
+  await openDocument(page, id, documents.letter);
+  let panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await page.keyboard.press("Escape");
+  await page.getByRole("link", { name: "Next" }).click();
+  await expect(article(page)).toContainText(documents.epigraph.text);
+  await page.getByRole("link", { name: "Library" }).click();
+  await expect(page.getByLabel("Import an EPUB")).toBeVisible();
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 19 });
+
+  await openDocument(page, id, documents.letter);
+  await expect(article(page)).toHaveCSS("font-size", "19px");
+  panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect(article(page)).toHaveCSS("font-size", "20px");
+  await page.close({ runBeforeUnload: true });
+  await expect
+    .poll(() => saved(context.request))
+    .toMatchObject({ fontSize: 20 });
+});
+
+test("a hidden page sends its pending save only after the save in flight", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await openDocument(page, id, documents.common);
+  const puts = await hold(page, "PUT");
+  const panel = await openSettings(page);
+  const larger = panel.getByRole("button", { name: "Increase font size" });
+  await larger.click();
+  await expect.poll(() => puts.length).toBe(1);
+  await larger.click();
+  await page.evaluate(() => {
+    for (const state of ["hidden", "visible"]) {
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => state,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
+  });
+  await page.waitForTimeout(1000);
+  expect(puts.length).toBe(1);
+
+  await puts[0].continue();
+  await expect.poll(() => puts.length).toBe(2);
+  expect(sentFontSizes(puts)).toEqual([19, 20]);
+  await puts[1].continue();
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 20 });
+});
+
+test("a page resumed after pagehide ends with its latest settings stored, even when the overlapping saves finish out of order", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await openDocument(page, id, documents.common);
+  const puts = await hold(page, "PUT");
+  const panel = await openSettings(page);
+  const larger = panel.getByRole("button", { name: "Increase font size" });
+  await larger.click();
+  await expect.poll(() => puts.length).toBe(1);
+  await larger.click();
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new PageTransitionEvent("pagehide", { persisted: true }),
+    ),
+  );
+  await expect.poll(() => puts.length).toBe(2);
+  expect(sentFontSizes(puts)).toEqual([19, 20]);
+
+  await puts[1].fulfill({ response: await puts[1].fetch() });
+  await puts[0].fulfill({ response: await puts[0].fetch() });
+  expect(await saved(page.request)).toMatchObject({ fontSize: 19 });
+  await page.evaluate(() =>
+    window.dispatchEvent(
+      new PageTransitionEvent("pageshow", { persisted: true }),
+    ),
+  );
+  await expect.poll(() => puts.length).toBe(3);
+  expect(sentFontSizes(puts)).toEqual([19, 20, 20]);
+  await puts[2].continue();
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 20 });
+});
+
+test("a failed save shows Not saved with Retry, and quick changes end with the latest settings stored", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await openDocument(page, id, documents.common);
+  await page.route("**/api/settings", (route) =>
+    route.request().method() === "PUT"
+      ? route.fulfill({ status: 500, json: { error: "internal server error" } })
+      : route.fallback(),
+  );
+  const panel = await openSettings(page);
+  const larger = panel.getByRole("button", { name: "Increase font size" });
+  await larger.click();
+  await expect(panel.getByText("Saving…")).toBeVisible();
+  await expect(panel.getByText("Not saved")).toBeVisible();
+  const retry = panel.getByRole("button", { name: "Retry" });
+  await expect(article(page)).toHaveCSS("font-size", "19px");
+  await page.unrouteAll();
+  await retry.click();
+  await expect(retry).toBeHidden();
+  await expect(panel.getByText("Not saved")).toBeHidden();
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 19 });
+
+  const puts = await hold(page, "PUT");
+  await larger.click();
+  await expect.poll(() => puts.length).toBe(1);
+  for (let i = 0; i < 3; i++) {
+    await larger.click();
+  }
+  await page.waitForTimeout(1000);
+  expect(puts.length).toBe(1);
+  await puts[0].continue();
+  await expect.poll(() => puts.length).toBe(2);
+  expect(sentFontSizes(puts)).toEqual([20, 23]);
+  await puts[1].continue();
+  await expect(panel.getByText("Saving…")).toBeHidden();
+  await page.unrouteAll();
+  await page.reload();
+  await expect(article(page)).toContainText(documents.common.text);
+  await expect(article(page)).toHaveCSS("font-size", "23px");
+});
+
+test("when the saved settings cannot be loaded, the defaults apply, the panel says so, and a change is still saved", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await save(page.request, { fontSize: 24 });
+  await page.route("**/api/settings", (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({ status: 500, json: { error: "internal server error" } })
+      : route.fallback(),
+  );
+  const loaded = page.waitForResponse((res) =>
+    isSettings(res.request(), "GET"),
+  );
+  await openDocument(page, id, documents.common);
+  await loaded;
+  const panel = await openSettings(page);
+  await expect(
+    panel.getByText("Your saved settings could not be loaded."),
+  ).toBeVisible();
+  await expect(article(page)).toHaveCSS("font-size", "18px");
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 19 });
+});
+
+test("saved settings that arrive after the document apply with the anchor rule", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await save(page.request, { fontSize: 24 });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  const gets = await hold(page, "GET");
+  await openDocument(page, id, documents.long);
+  await expect.poll(() => gets.length).toBe(1);
+  await expect(article(page)).toHaveCSS("font-size", "18px");
+  const block = "#long > p:nth-of-type(20)";
+  const fraction = await scrollInto(page, block, 0.4);
+  const before = await scrollY(page);
+
+  await gets[0].continue();
+  await expect(article(page)).toHaveCSS("font-size", "24px");
+  await expectAtTop(page, block, fraction);
+  expect(await scrollY(page)).not.toBe(before);
+});
+
+test("a change the user makes before the saved settings arrive wins over them", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await save(page.request, { fontSize: 24 });
+  const gets = await hold(page, "GET");
+  await openDocument(page, id, documents.common);
+  await expect.poll(() => gets.length).toBe(1);
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect(article(page)).toHaveCSS("font-size", "19px");
+
+  const answered = page.waitForResponse((res) =>
+    isSettings(res.request(), "GET"),
+  );
+  await gets[0].continue();
+  expect(await (await answered).json()).toMatchObject({ fontSize: 24 });
+  await page.waitForTimeout(200);
+  await expect(article(page)).toHaveCSS("font-size", "19px");
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 19 });
+
+  await page.unrouteAll();
+  await page.reload();
+  await expect(article(page)).toContainText(documents.common.text);
+  await expect(article(page)).toHaveCSS("font-size", "19px");
+});
+
+test("saved settings that arrive before the document are there on its first render, before the fragment scroll", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await save(page.request, { fontSize: 24 });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.addInitScript(() => {
+    new MutationObserver((_, observer) => {
+      const content = document.getElementById("tomeshelf-content");
+      if (content?.querySelector("[data-tomeshelf-block]")) {
+        document.documentElement.dataset.firstRenderFont =
+          getComputedStyle(content).fontSize;
+        observer.disconnect();
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
+  const documentFiles: Route[] = [];
+  await page.route("**/api/books/*/package/**", (route) => {
+    if (!route.request().url().endsWith(".xhtml")) {
+      return route.fallback();
+    }
+    documentFiles.push(route);
+  });
+  const loaded = page.waitForResponse((res) =>
+    isSettings(res.request(), "GET"),
+  );
+  await page.goto(`/books/${id}/read/${documents.long.n}#tall-table`);
+  await loaded;
+  await expect.poll(() => documentFiles.length).toBe(1);
+  await documentFiles[0].continue();
+
+  await expect(article(page)).toContainText(documents.long.text);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-first-render-font",
+    "24px",
+  );
+  await expect
+    .poll(async () =>
+      Math.abs((await page.locator("#tall-table").boundingBox())?.y ?? 999),
+    )
+    .toBeLessThan(2);
+});
+
+test("a load started during a save cannot overwrite the saved choice", async ({
+  page,
+}) => {
+  await importSemantics(page);
+  const puts = await hold(page, "PUT");
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect.poll(() => puts.length).toBe(1);
+  const gets = await hold(page, "GET");
+  await page.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("link", { name: new RegExp(title) }).click();
+  await expect.poll(() => gets.length).toBe(1);
+  const old = await gets[0].fetch();
+  await puts[0].continue();
+  await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 19 });
+  await gets[0].fulfill({ response: old });
+  await page.waitForTimeout(200);
+  await expect(article(page)).toHaveCSS("font-size", "19px");
+});
+
+test("a failed save cannot follow a different user into their session", async ({
+  page,
+  server,
+}) => {
+  await importSemantics(page);
+  await page.route("**/api/settings", (route) =>
+    route.request().method() === "PUT"
+      ? route.fulfill({ status: 500 })
+      : route.fallback(),
+  );
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect(panel.getByText("Not saved")).toBeVisible();
+  await page.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await page.context().addCookies([
+    {
+      name: "tomeshelf_session",
+      value: addReader(server, "other"),
+      url: server.url,
+    },
+  ]);
+  await page.unrouteAll();
+  await page.evaluate(() => {
+    history.pushState({}, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "semantics.epub"));
+  await expect(page.getByRole("status")).toHaveText(`Imported ${title}.`);
+  await page.getByRole("link", { name: new RegExp(title) }).click();
+  await expect(article(page)).toContainText(documents.poetry.text);
+  const otherPanel = await openSettings(page);
+  await expect(
+    otherPanel.getByRole("status", { name: "Font size" }),
+  ).toHaveText("18 px");
+  await expect(otherPanel.getByRole("button", { name: "Retry" })).toHaveCount(
+    0,
+  );
+  expect(await saved(page.request)).toEqual(defaults);
+});
+
+test("signing out discards saves waiting behind an in-flight save", async ({
+  page,
+  server,
+}) => {
+  await importSemantics(page);
+  const puts = await hold(page, "PUT");
+  const panel = await openSettings(page);
+  const increase = panel.getByRole("button", { name: "Increase font size" });
+  await increase.click();
+  await expect.poll(() => puts.length).toBe(1);
+  await increase.click();
+  await page.getByRole("link", { name: "Library" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await page.context().addCookies([
+    {
+      name: "tomeshelf_session",
+      value: addReader(server, "other"),
+      url: server.url,
+    },
+  ]);
+  await puts[0].fulfill({ status: 204 });
+  await page.waitForTimeout(800);
+  expect(puts).toHaveLength(1);
+  expect(await saved(page.request)).toEqual(defaults);
 });

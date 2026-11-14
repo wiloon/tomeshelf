@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useId, useState } from "react";
+import { useReadingSettings } from "./settings";
 
 type Credentials = { username: string; password: string };
 
@@ -136,6 +137,7 @@ export function SignInPage() {
 
 export function AccountBar() {
   const queryClient = useQueryClient();
+  const { reset } = useReadingSettings();
   const navigate = useNavigate();
   const me = useQuery({ queryKey: ["me"], queryFn: fetchMe });
 
@@ -153,6 +155,7 @@ export function AccountBar() {
       setError("tomeshelf could not be reached. Please try again.");
       return;
     }
+    reset();
     queryClient.clear();
     await navigate({ to: "/signin" });
   }

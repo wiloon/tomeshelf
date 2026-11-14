@@ -106,7 +106,7 @@ func run(ctx context.Context, cfg config, logger *slog.Logger, listening func(ad
 		return err
 	}
 	srv := &http.Server{
-		Handler:           server.New(web.Build(), logger, st, books, cfg.maxBookMB<<20),
+		Handler:           server.New(web.Build(), logger, st, st, books, cfg.maxBookMB<<20),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}

@@ -1,6 +1,6 @@
 // Package store keeps tomeshelf's data in SQLite: the embedded schema
 // migrations, the users and sessions behind sign-in (ADR-0008, ADR-0009), and
-// each user's library.
+// each user's library and reading settings.
 package store
 
 import (
@@ -265,6 +265,47 @@ func (s *Store) Book(ctx context.Context, username string, id int64) (Book, erro
 		return Book{}, fmt.Errorf("book %d authors: %w", row.ID, err)
 	}
 	return b, nil
+}
+
+// ReadingSettings are a user's saved reading settings. The server checks them
+// against the settings contract before they are saved.
+type ReadingSettings struct {
+	FontSize   int64
+	LineHeight float64
+	Width      int64
+	Theme      string
+}
+
+// ReadingSettings returns the user's saved reading settings, and false when
+// the user has saved none.
+func (s *Store) ReadingSettings(ctx context.Context, username string) (ReadingSettings, bool, error) {
+	row, err := s.q.GetReadingSettings(ctx, username)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ReadingSettings{}, false, nil
+	}
+	if err != nil {
+		return ReadingSettings{}, false, err
+	}
+	return ReadingSettings(row), true, nil
+}
+
+// SaveReadingSettings replaces the user's saved reading settings. It returns
+// ErrUnknownUser when no such user exists.
+func (s *Store) SaveReadingSettings(ctx context.Context, username string, rs ReadingSettings) error {
+	n, err := s.q.PutReadingSettings(ctx, dbq.PutReadingSettingsParams{
+		FontSize:   rs.FontSize,
+		LineHeight: rs.LineHeight,
+		Width:      rs.Width,
+		Theme:      rs.Theme,
+		Username:   username,
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrUnknownUser
+	}
+	return nil
 }
 
 func (s *Store) inTx(ctx context.Context, fn func(*dbq.Queries) error) error {

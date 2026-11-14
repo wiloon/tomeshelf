@@ -50,3 +50,18 @@ ORDER BY books.title COLLATE NOCASE, books.id;
 SELECT books.id, books.sha256, books.title, books.authors
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ? AND books.id = ?;
+
+-- name: GetReadingSettings :one
+SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme
+FROM reading_settings JOIN users ON users.id = reading_settings.user_id
+WHERE users.username = ?;
+
+-- name: PutReadingSettings :execrows
+INSERT INTO reading_settings (user_id, font_size, line_height, width, theme)
+SELECT id, sqlc.arg(font_size), sqlc.arg(line_height), sqlc.arg(width), sqlc.arg(theme)
+FROM users WHERE username = sqlc.arg(username)
+ON CONFLICT (user_id) DO UPDATE SET
+    font_size = excluded.font_size,
+    line_height = excluded.line_height,
+    width = excluded.width,
+    theme = excluded.theme;
