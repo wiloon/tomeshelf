@@ -602,6 +602,23 @@ test("a table of contents entry opens its document at the entry's fragment", asy
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
 });
 
+test("choosing the current table of contents entry returns to its fragment", async ({
+  page,
+}) => {
+  await openBook(page, contentsBook);
+  let panel = await openContents(page);
+  await panel.getByRole("link", { name: "Chapter III" }).click();
+  const heading = article(page).locator("h2#chapter-3");
+  await expect(heading).toBeInViewport();
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await expect(heading).not.toBeInViewport();
+  panel = await openContents(page);
+  await panel.getByRole("link", { name: "Chapter III" }).click();
+  await expect(panel).toBeHidden();
+  await expect(heading).toBeInViewport();
+});
+
 test("a book with no table of contents says so", async ({ page }) => {
   await openBook(page, {
     file: "no-toc.epub",
