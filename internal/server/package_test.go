@@ -1,6 +1,8 @@
 package server_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,6 +12,44 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestOversizedPackageFileIsRejected(t *testing.T) {
+	book := coverEPUB(t, "Oversized Package File", nil)
+	zr, err := zip.NewReader(bytes.NewReader(book), int64(len(book)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	for _, entry := range zr.File {
+		if err := zw.Copy(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w, err := zw.Create("OEBPS/oversized.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := bytes.Repeat([]byte("oversized-file-data"), 1024)
+	for written := 0; written <= 64<<20; written += len(chunk) {
+		if _, err := w.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e := newEnv(t, buildFS())
+	cookie := e.setup(t)
+	id := e.importedID(t, cookie, archive.Bytes())
+	res := e.get(t, packagePath(id, "OEBPS/oversized.bin"), cookie)
+	if res.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", res.StatusCode, http.StatusInternalServerError)
+	}
+	if got := body(t, res); strings.Contains(got, "oversized-file-data") {
+		t.Error("response contains package file bytes")
+	}
+}
 
 const coverEPUBText = `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Text</title></head><body><p>CC0 test text.</p></body></html>`
