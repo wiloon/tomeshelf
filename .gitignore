@@ -4,3 +4,4 @@
 /web/test-results/
 /web/playwright-report/
 /.task/
+/.pnpm-store/
