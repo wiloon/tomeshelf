@@ -5,4 +5,5 @@
 /web/playwright-report/
 /web/e2e/.auth/
 /.task/
+/tmp/
 /.pnpm-store/

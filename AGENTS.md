@@ -7,7 +7,7 @@ tomeshelf is a self-hosted EPUB reader. It renders book text into the main docum
 1. Pick a `ready-for-agent` issue with no open blockers (`docs/agents/issue-tracker.md`, **Count open blockers**). Read its body and comments, and the ADRs it cites.
 2. Work in a git worktree branched from `origin/main`, on a `feat/…`, `fix/…` or `docs/…` branch. Other agent sessions may be working in the main checkout at the same time.
 3. Build it test-first with the matching skill (table below).
-4. Open a PR with the `pr` skill. Its body says `Closes #<n>` and names every check you did not run.
+4. Open a PR with the `pr` skill. Its body says `Closes #<n>` and names every check you did not run. When its `## Manual checks` is not `none`, shoot each item as `docs/agents/screenshots.md` describes.
 
 The work is done when every acceptance criterion in the issue is checked off and `task ci` passes on your committed changes. `task ci` runs the CI checks locally; `task e2e` runs the Playwright tests against the built binary.
 

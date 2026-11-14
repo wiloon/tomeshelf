@@ -76,3 +76,12 @@ tasks:
       - cd web && pnpm run e2e
     env:
       TOMESHELF_BIN: "{{.ROOT_DIR}}/{{.BIN}}"
+
+  shots:
+    desc: "Build the binary and run a throwaway screenshot script: task shots -- path/to/script.ts"
+    dir: "{{.USER_WORKING_DIR}}"
+    cmds:
+      - task: build
+      - SHOTS_DIR="${SHOTS_DIR:-{{.ROOT_DIR}}/tmp/shots}" node {{.CLI_ARGS}}
+    env:
+      TOMESHELF_BIN: "{{.ROOT_DIR}}/{{.BIN}}"
