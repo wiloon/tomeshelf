@@ -49,8 +49,13 @@ async function importSemantics(page: Page): Promise<string> {
     .getByLabel("Import an EPUB")
     .setInputFiles(path.join(books, "semantics.epub"));
   await expect(page.getByRole("status")).toHaveText(`Imported ${title}.`);
+  const settingsLoaded = page.waitForResponse((res) =>
+    isSettings(res.request(), "GET"),
+  );
   await page.getByRole("link", { name: new RegExp(title) }).click();
   await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(article(page)).toContainText(documents.poetry.text);
+  await settingsLoaded;
   return new URL(page.url()).pathname.split("/")[2];
 }
 
