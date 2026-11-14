@@ -25,10 +25,10 @@ const indexHTML = "index.html"
 // browser app, whose static build is read from build. Everything outside the
 // health endpoints, the build's files, the setup and sign-in pages and their
 // API needs a signed-in session. Cross-origin browser requests that change
-// state are rejected. Imported books go into books, and an EPUB upload over
-// maxBookBytes is refused.
-func New(build fs.FS, logger *slog.Logger, accounts Accounts, books *library.Library, maxBookBytes int64) http.Handler {
-	s := &site{build: build, logger: logger, accounts: accounts, books: books, maxBookBytes: maxBookBytes}
+// state are rejected. Reading settings are kept in settings. Imported books go
+// into books, and an EPUB upload over maxBookBytes is refused.
+func New(build fs.FS, logger *slog.Logger, accounts Accounts, settings Settings, books *library.Library, maxBookBytes int64) http.Handler {
+	s := &site{build: build, logger: logger, accounts: accounts, settings: settings, books: books, maxBookBytes: maxBookBytes}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeText(w, http.StatusOK, "ok")
@@ -44,6 +44,8 @@ func New(build fs.FS, logger *slog.Logger, accounts Accounts, books *library.Lib
 	mux.HandleFunc("POST /api/session", s.signIn)
 	mux.HandleFunc("DELETE /api/session", s.signOut)
 	mux.HandleFunc("GET /api/me", s.me)
+	mux.HandleFunc("GET /api/settings", s.getSettings)
+	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	mux.HandleFunc("GET /api/books", s.listBooks)
 	mux.HandleFunc("POST /api/books", s.importBook)
 	mux.HandleFunc("GET /api/books/{id}/thumbnail", s.thumbnail)
@@ -78,6 +80,7 @@ type site struct {
 	build        fs.FS
 	logger       *slog.Logger
 	accounts     Accounts
+	settings     Settings
 	books        *library.Library
 	maxBookBytes int64
 }

@@ -80,7 +80,7 @@ func openEnv(t *testing.T, build fstest.MapFS, opts envOptions) env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := server.New(build, slog.New(slog.DiscardHandler), accounts, lib, opts.maxBookBytes)
+	h := server.New(build, slog.New(slog.DiscardHandler), accounts, st, lib, opts.maxBookBytes)
 	return env{h: h, store: st, dbPath: path, dataDir: opts.dataDir}
 }
 

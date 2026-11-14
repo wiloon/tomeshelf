@@ -68,6 +68,31 @@ func (q *Queries) GetBook(ctx context.Context, arg GetBookParams) (GetBookRow, e
 	return i, err
 }
 
+const getReadingSettings = `-- name: GetReadingSettings :one
+SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme
+FROM reading_settings JOIN users ON users.id = reading_settings.user_id
+WHERE users.username = ?
+`
+
+type GetReadingSettingsRow struct {
+	FontSize   int64
+	LineHeight float64
+	Width      int64
+	Theme      string
+}
+
+func (q *Queries) GetReadingSettings(ctx context.Context, username string) (GetReadingSettingsRow, error) {
+	row := q.db.QueryRowContext(ctx, getReadingSettings, username)
+	var i GetReadingSettingsRow
+	err := row.Scan(
+		&i.FontSize,
+		&i.LineHeight,
+		&i.Width,
+		&i.Theme,
+	)
+	return i, err
+}
+
 const getSessionUsername = `-- name: GetSessionUsername :one
 SELECT users.username
 FROM sessions JOIN users ON users.id = sessions.user_id
@@ -231,6 +256,39 @@ func (q *Queries) ListBooks(ctx context.Context, username string) ([]ListBooksRo
 		return nil, err
 	}
 	return items, nil
+}
+
+const putReadingSettings = `-- name: PutReadingSettings :execrows
+INSERT INTO reading_settings (user_id, font_size, line_height, width, theme)
+SELECT id, ?1, ?2, ?3, ?4
+FROM users WHERE username = ?5
+ON CONFLICT (user_id) DO UPDATE SET
+    font_size = excluded.font_size,
+    line_height = excluded.line_height,
+    width = excluded.width,
+    theme = excluded.theme
+`
+
+type PutReadingSettingsParams struct {
+	FontSize   int64
+	LineHeight float64
+	Width      int64
+	Theme      string
+	Username   string
+}
+
+func (q *Queries) PutReadingSettings(ctx context.Context, arg PutReadingSettingsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, putReadingSettings,
+		arg.FontSize,
+		arg.LineHeight,
+		arg.Width,
+		arg.Theme,
+		arg.Username,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const updatePasswordHash = `-- name: UpdatePasswordHash :one
