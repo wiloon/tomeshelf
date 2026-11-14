@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useId, useState } from "react";
 import { AccountBar } from "./auth";
 
@@ -123,15 +124,23 @@ export function LibraryPage() {
             className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
           >
             {books.data.map((book) => (
-              <li key={book.id} className="flex min-w-0 flex-col gap-1">
-                <Cover book={book} />
-                <span className="font-medium wrap-anywhere">{book.title}</span>
-                {book.authors.length > 0 && (
-                  <span className="text-sm text-stone-600 wrap-anywhere">
-                    {" "}
-                    by {book.authors.join(", ")}
+              <li key={book.id} className="min-w-0">
+                <Link
+                  to="/books/$id/read/$n"
+                  params={{ id: String(book.id), n: "1" }}
+                  className="flex flex-col gap-1"
+                >
+                  <Cover book={book} />
+                  <span className="font-medium wrap-anywhere">
+                    {book.title}
                   </span>
-                )}
+                  {book.authors.length > 0 && (
+                    <span className="text-sm text-stone-600 wrap-anywhere">
+                      {" "}
+                      by {book.authors.join(", ")}
+                    </span>
+                  )}
+                </Link>
               </li>
             ))}
           </ul>

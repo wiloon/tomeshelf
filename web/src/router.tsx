@@ -6,6 +6,7 @@ import {
 } from "@tanstack/react-router";
 import { SetupPage, SignInPage } from "./auth";
 import { LibraryPage } from "./library";
+import { ReaderPage } from "./reader";
 import { Shell } from "./shell";
 
 const rootRoute = createRootRoute({ component: Shell });
@@ -28,7 +29,19 @@ const signInRoute = createRoute({
   component: SignInPage,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, setupRoute, signInRoute]);
+// One URL per document in the reading order, n counting from 1 (ADR-0005).
+const readRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/books/$id/read/$n",
+  component: ReaderPage,
+});
+
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  setupRoute,
+  signInRoute,
+  readRoute,
+]);
 
 export function createAppRouter(history?: RouterHistory) {
   return createRouter({ routeTree, history });
