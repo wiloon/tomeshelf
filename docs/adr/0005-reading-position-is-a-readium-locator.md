@@ -8,6 +8,18 @@ Each document in a book's reading order has its own URL, e.g. `/books/:id/read/:
 
 tomeshelf stores each user's reading position on the server, shaped as a Readium Locator: the document's `href`, progression within the document, total progression, a CSS selector for the block (the Navigator numbers blocks) with a character offset inside it, and a text quote (`before`, `highlight`, `after`). Restoring tries the text quote first, then the block and offset, then the progression. Several redundant ways of locating are the established practice (Readium's Locator; the W3C Web Annotation selectors that Hypothesis uses), because any single one breaks when the content or layout changes.
 
+The fields are measured like this, so that every device computes and resolves them the same way:
+
+- **Anchor.** The position is the first block whose box reaches below the top of the viewport, and the character offset is that of the first character of it visible at the top of the viewport (0 when the block's top is in view).
+- **Text.** Character offsets count UTF-16 code units of the block's `textContent`: every descendant text node in document order, whatever markup nests it, with whitespace kept as it is.
+- **Quote.** `highlight` is up to 64 characters of the article's `textContent` starting at the anchor; `before` and `after` are up to 32 characters on each side. When the quote occurs more than once in the document, restoring picks the occurrence whose block is nearest the stored block.
+- **Progression** within the document is how far it is scrolled, from 0 at its top to 1 when its end is in view: the scroll offset past the article's top divided by the article's height minus the viewport's height, clamped to 0..1 (1 when the article fits in the viewport).
+- **Total progression** weights each document of the reading order by its uncompressed size in the EPUB, so a short cover document doesn't count as much as a long one. The server computes it from the `href` and the progression when it stores a position, since only the Streamer knows those sizes.
+
+The library reaches a book through a resume address, `/books/:id/read`, which opens the stored document's address at the stored position, or the first document's top when there is none. A document's own address always opens that document as addressed, at its top or its fragment, and never jumps to the stored position: following Previous, Next, a table of contents entry or a link is the reader's explicit choice.
+
+Each user has one reading position per book. The last save the server accepts wins, across tabs and devices. Within one tab, saves carry an increasing sequence number and the server ignores a save from the same tab as the stored position with a sequence number no greater than the stored one's, so a slow request cannot overwrite a newer position.
+
 ## Considered Options
 
 - **EPUB CFI**, used by epub.js, Calibre and Apple Books. Rejected for v1: it is a path of child indexes through the DOM. The Navigator rewrites the DOM, so a CFI computed on the rendered document doesn't match the original file. It breaks when the content changes, cannot carry over to another edition, and is complex to implement fully. CFI is needed only to exchange data with other readers, which is not a goal. If that changes, it is one more field in the Locator.
@@ -18,3 +30,8 @@ tomeshelf stores each user's reading position on the server, shaped as a Readium
 
 - The text quote has the same shape as ENX's sentence anchor (ADR-081 in the enx repo: the sentence plus 32 characters before and after). A later version can take ENX's last-looked-up sentence as the reading position with little conversion.
 - Block numbers are stable only for the same book file and the same version of the Navigator's numbering rules. A change to those rules must keep old Locators resolvable through the text quote.
+- Last save wins, so a device left open on an old page could overwrite a newer position from another device. A tab therefore saves only after its reader has moved; it sends nothing when it is merely hidden or closed without having moved since its last save.
+
+## Revisions
+
+- 2026-11-14, issue #10: defined how the anchor, character offset, quote and progressions are measured, weighted total progression by document size, added the resume address that is the only way a stored position is applied, and chose last-save-wins with per-tab ordering, since these decide what is stored and what every device restores.
