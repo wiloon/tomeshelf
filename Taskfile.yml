@@ -15,6 +15,9 @@ tasks:
     desc: Build the browser app into web/dist, which the binary embeds.
     deps: [web:install]
     dir: web
+    env:
+      TOMESHELF_VERSION:
+        sh: git describe --tags --always --dirty 2>/dev/null || echo dev
     cmds:
       - pnpm run build
 

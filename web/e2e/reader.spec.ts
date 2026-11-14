@@ -17,9 +17,12 @@ const test = base.extend<{ server: TestServer }>({
 const books = path.resolve(import.meta.dirname, "../../testdata/books");
 const title = "A Hand-Made Reading Book";
 
-// Creates the admin, imports the reading fixture, chooses it in the library
-// and returns its book id once its first document shows.
-async function openBook(page: Page): Promise<string> {
+// Creates the admin, imports a fixture, chooses it in the library and
+// returns its book id once its first document shows.
+async function openBook(
+  page: Page,
+  book = { file: "reader.epub", title, text: "Document One" },
+): Promise<string> {
   const setup = await page.request.post("/api/setup", {
     data: { username: "reader", password: "reader password" },
   });
@@ -27,11 +30,11 @@ async function openBook(page: Page): Promise<string> {
   await page.goto("/");
   await page
     .getByLabel("Import an EPUB")
-    .setInputFiles(path.join(books, "reader.epub"));
-  await expect(page.getByRole("status")).toHaveText(`Imported ${title}.`);
-  await page.getByRole("link", { name: new RegExp(title) }).click();
+    .setInputFiles(path.join(books, book.file));
+  await expect(page.getByRole("status")).toHaveText(`Imported ${book.title}.`);
+  await page.getByRole("link", { name: new RegExp(book.title) }).click();
   await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
-  await expect(article(page)).toContainText("Document One");
+  await expect(article(page)).toContainText(book.text);
   const id = new URL(page.url()).pathname.split("/")[2];
   return id;
 }
@@ -339,4 +342,195 @@ test("reading fits phone and desktop widths", async ({ page }) => {
       expect(box.article).toBeGreaterThan(300);
     }
   }
+});
+
+function box(page: Page, selector: string) {
+  return page
+    .locator(selector)
+    .evaluate((el) => el.getBoundingClientRect().toJSON() as DOMRect);
+}
+
+test("the text column keeps its width and left edge on every document", async ({
+  page,
+}) => {
+  const id = await openBook(page);
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 800 });
+    const columns: { n: number; left: number; width: number }[] = [];
+    for (const n of [1, 2, 3]) {
+      await page.goto(`/books/${id}/read/${n}`);
+      await expect(article(page)).toContainText(
+        `Document ${["One", "Two", "Three"][n - 1]}`,
+      );
+      const { left, width: w } = await box(page, "article#tomeshelf-content");
+      columns.push({ n, left, width: w });
+    }
+    for (const column of columns) {
+      expect(column, `document ${column.n} at ${width} px`).toEqual({
+        ...columns[0],
+        n: column.n,
+      });
+    }
+  }
+});
+
+test("previous/next align with the text column", async ({ page }) => {
+  const id = await openBook(page);
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`/books/${id}/read/2`);
+    await expect(article(page)).toContainText("Document Two");
+    const text = await box(page, "article#tomeshelf-content");
+    const previous = await control(page, "Previous").evaluate((el) =>
+      el.getBoundingClientRect().toJSON(),
+    );
+    const next = await control(page, "Next").evaluate((el) =>
+      el.getBoundingClientRect().toJSON(),
+    );
+    expect(Math.abs(previous.left - text.left), `at ${width} px`).toBeLessThan(
+      1,
+    );
+    expect(Math.abs(next.right - text.right), `at ${width} px`).toBeLessThan(1);
+    expect(previous.left).toBeGreaterThan(0);
+    expect(next.right).toBeLessThan(width);
+  }
+});
+
+test("a Gutenberg-style document holding several chapters renders as one scroll", async ({
+  page,
+}) => {
+  const id = await openBook(page, {
+    file: "chapters.epub",
+    title: "A Hand-Made Book of Chapters",
+    text: "CHAPTER I.",
+  });
+  await expect(article(page).locator("h2")).toHaveText([
+    "CHAPTER I.",
+    "CHAPTER II.",
+    "CHAPTER III.",
+    "CHAPTER IV.",
+  ]);
+  const last = article(page).getByText("Chapter IV ends.");
+  await expect(last).not.toBeInViewport();
+  const scroll = await page.evaluate(() => {
+    const root = document.documentElement;
+    const content = document.getElementById("tomeshelf-content");
+    return {
+      pageScrolls: root.scrollHeight > root.clientHeight,
+      articleClips: content
+        ? content.scrollHeight > content.clientHeight + 1
+        : true,
+    };
+  });
+  expect(scroll).toEqual({ pageScrolls: true, articleClips: false });
+
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  );
+  await expect(last).toBeInViewport();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+  await control(page, "Next").click();
+  await expect(article(page)).toContainText("A short note.");
+});
+
+test("a malicious book runs nothing and leaves nothing dangerous in the article", async ({
+  page,
+  context,
+}) => {
+  const dialogs: string[] = [];
+  page.on("dialog", (dialog) => {
+    dialogs.push(dialog.message());
+    void dialog.dismiss();
+  });
+  const popups: string[] = [];
+  context.on("page", (popup) => popups.push(popup.url()));
+
+  const id = await openBook(page, {
+    file: "malicious.epub",
+    title: "A Hand-Made Malicious Book",
+    text: "Malicious Document One",
+  });
+  const documents = [
+    { n: 1, text: "Malicious Document One" },
+    { n: 2, text: "Malicious Document Two" },
+  ];
+  for (const { n, text } of documents) {
+    if (n > 1) {
+      await control(page, "Next").click();
+    }
+    await expect(page).toHaveURL(new RegExp(`/books/${id}/read/${n}$`));
+    await expect(article(page)).toContainText(text);
+
+    // Activate whatever the payloads hang on.
+    for (const target of await article(page).locator("a, p, details").all()) {
+      await target.hover();
+    }
+    for (const name of [
+      "js-link",
+      "js-entity",
+      "js-upper",
+      "data-link",
+      "js-tab",
+    ]) {
+      const link = article(page).locator(`a#${name}`);
+      if ((await link.count()) > 0) {
+        await link.click();
+      }
+    }
+    await page.waitForTimeout(300);
+    await expect(page).toHaveURL(new RegExp(`/books/${id}/read/${n}$`));
+
+    const found = await page.evaluate(() => {
+      const content = document.getElementById("tomeshelf-content");
+      const elements = content ? [...content.querySelectorAll("*")] : [];
+      return {
+        pwned: (window as { __pwned?: string }).__pwned ?? null,
+        dangerous: elements
+          .filter((el) =>
+            el.matches(
+              "script, iframe, frame, object, embed, form, input, button, textarea, select, meta, base, link, style, animate, set",
+            ),
+          )
+          .map((el) => el.localName),
+        handlers: elements.flatMap((el) =>
+          el.getAttributeNames().filter((name) => name.startsWith("on")),
+        ),
+        scriptURLs: elements.flatMap((el) =>
+          el
+            .getAttributeNames()
+            .map((name) => el.getAttribute(name) ?? "")
+            .filter((value) =>
+              /^(javascript|data|vbscript):/i.test(
+                // biome-ignore lint/suspicious/noControlCharactersInRegex: URL parsers drop these characters.
+                value.replace(/[\u0000-\u0020]/g, ""),
+              ),
+            ),
+        ),
+        forged: {
+          containers: document.querySelectorAll("#tomeshelf-content").length,
+          blocks: elements
+            .filter((el) => el.hasAttribute("data-tomeshelf-block"))
+            .map((el) => el.getAttribute("data-tomeshelf-block")),
+        },
+      };
+    });
+    expect(found.pwned).toBeNull();
+    expect(found.dangerous).toEqual([]);
+    expect(found.handlers).toEqual([]);
+    expect(found.scriptURLs).toEqual([]);
+    expect(found.forged.containers).toBe(1);
+    expect(found.forged.blocks).toEqual(
+      found.forged.blocks.map((_, i) => String(i + 1)),
+    );
+  }
+
+  // Reloaded documents parse the book afresh; nothing runs then either.
+  for (const { n, text } of documents) {
+    await page.goto(`/books/${id}/read/${n}`);
+    await expect(article(page)).toContainText(text);
+  }
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => "__pwned" in window)).toBe(false);
+  expect(dialogs).toEqual([]);
+  expect(popups).toEqual([]);
 });
