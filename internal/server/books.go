@@ -107,12 +107,75 @@ func (s *site) thumbnail(w http.ResponseWriter, r *http.Request) {
 		s.apiError(w, err)
 		return
 	}
-	sum := sha256.Sum256(thumb)
-	w.Header().Set("Content-Type", "image/jpeg")
+	serveRevalidated(w, r, "image/jpeg", thumb)
+}
+
+// manifest answers the RWPM manifest of a book in the signed-in user's
+// library, with the session and owner checked as for the thumbnail.
+func (s *site) manifest(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireUser(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	m, err := s.books.Manifest(r.Context(), user, id)
+	switch {
+	case err == nil:
+	case errors.Is(err, store.ErrUnknownBook):
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	case errors.Is(err, context.Canceled) && r.Context().Err() != nil:
+		return
+	default:
+		s.apiError(w, err)
+		return
+	}
+	serveRevalidated(w, r, "application/webpub+json", m)
+}
+
+// packageFile answers one file of the package of a book in the signed-in
+// user's library as stored, with the session and owner checked as for the
+// thumbnail. The file is only data for the Navigator: it is sandboxed so that
+// opening it directly runs no script in tomeshelf's origin (ADR-0004).
+func (s *site) packageFile(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requireUser(w, r)
+	if !ok {
+		return
+	}
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	}
+	data, mediaType, err := s.books.PackageFile(r.Context(), user, id, r.PathValue("path"))
+	switch {
+	case err == nil:
+	case errors.Is(err, store.ErrUnknownBook), errors.Is(err, library.ErrNoFile):
+		writeError(w, http.StatusNotFound, "not found")
+		return
+	case errors.Is(err, context.Canceled) && r.Context().Err() != nil:
+		return
+	default:
+		s.apiError(w, err)
+		return
+	}
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	serveRevalidated(w, r, mediaType, data)
+}
+
+// serveRevalidated answers data with an ETag of its content. Browsers must
+// revalidate before each reuse, and shared caches must not store it.
+func serveRevalidated(w http.ResponseWriter, r *http.Request, contentType string, data []byte) {
+	sum := sha256.Sum256(data)
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("ETag", `"`+hex.EncodeToString(sum[:16])+`"`)
-	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(thumb))
+	http.ServeContent(w, r, "", time.Time{}, bytes.NewReader(data))
 }
 
 // requireUser returns the signed-in username, or answers 401 and false.
