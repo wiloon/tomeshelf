@@ -38,6 +38,36 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 	return err
 }
 
+const getBook = `-- name: GetBook :one
+SELECT books.id, books.sha256, books.title, books.authors
+FROM books JOIN users ON users.id = books.user_id
+WHERE users.username = ? AND books.id = ?
+`
+
+type GetBookParams struct {
+	Username string
+	ID       int64
+}
+
+type GetBookRow struct {
+	ID      int64
+	Sha256  string
+	Title   string
+	Authors string
+}
+
+func (q *Queries) GetBook(ctx context.Context, arg GetBookParams) (GetBookRow, error) {
+	row := q.db.QueryRowContext(ctx, getBook, arg.Username, arg.ID)
+	var i GetBookRow
+	err := row.Scan(
+		&i.ID,
+		&i.Sha256,
+		&i.Title,
+		&i.Authors,
+	)
+	return i, err
+}
+
 const getSessionUsername = `-- name: GetSessionUsername :one
 SELECT users.username
 FROM sessions JOIN users ON users.id = sessions.user_id

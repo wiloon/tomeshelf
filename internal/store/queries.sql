@@ -45,3 +45,8 @@ SELECT books.id, books.sha256, books.title, books.authors
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ?
 ORDER BY books.title COLLATE NOCASE, books.id;
+
+-- name: GetBook :one
+SELECT books.id, books.sha256, books.title, books.authors
+FROM books JOIN users ON users.id = books.user_id
+WHERE users.username = ? AND books.id = ?;

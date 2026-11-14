@@ -1,6 +1,7 @@
-// Package library imports EPUB files into the library. Each book's original
-// is the only stored copy, at books/<sha256>.epub under the data directory;
-// uploads are staged in tmp/ on the same filesystem (ADR-0007).
+// Package library imports EPUB files into the library and makes their cover
+// thumbnails. Each book's original is the only stored copy, at
+// books/<sha256>.epub under the data directory; uploads are staged in tmp/ on
+// the same filesystem, and thumbnails are a cache under cache/ (ADR-0007).
 package library
 
 import (
@@ -19,6 +20,7 @@ import (
 	"github.com/readium/go-toolkit/pkg/asset"
 	"github.com/readium/go-toolkit/pkg/mediatype"
 	"github.com/readium/go-toolkit/pkg/parser/epub"
+	"github.com/readium/go-toolkit/pkg/pub"
 	"github.com/readium/go-toolkit/pkg/util/url"
 
 	"github.com/wiloon/tomeshelf/internal/store"
@@ -37,23 +39,27 @@ func (e *ParseError) Unwrap() error { return e.Err }
 type Store interface {
 	AddBook(ctx context.Context, username string, b store.Book) (store.Book, error)
 	Books(ctx context.Context, username string) ([]store.Book, error)
+	Book(ctx context.Context, username string, id int64) (store.Book, error)
 }
 
 // Library is the books in a data directory. Its methods are safe for
 // concurrent use.
 type Library struct {
-	booksDir string
-	tmpDir   string
-	store    Store
+	booksDir  string
+	tmpDir    string
+	coversDir string
+	store     Store
 }
 
 // Open prepares books/ and tmp/ in dataDir and empties tmp/, which only
-// holds uploads an earlier process did not finish.
+// holds uploads an earlier process did not finish. Cover thumbnails are
+// cached in cache/covers/, which is created when a thumbnail is first made.
 func Open(dataDir string, st Store) (*Library, error) {
 	l := &Library{
-		booksDir: filepath.Join(dataDir, "books"),
-		tmpDir:   filepath.Join(dataDir, "tmp"),
-		store:    st,
+		booksDir:  filepath.Join(dataDir, "books"),
+		tmpDir:    filepath.Join(dataDir, "tmp"),
+		coversDir: filepath.Join(dataDir, "cache", "covers"),
+		store:     st,
 	}
 	if err := os.RemoveAll(l.tmpDir); err != nil {
 		return nil, err
@@ -126,23 +132,32 @@ func (l *Library) stage(ctx context.Context, r io.Reader) (string, string, error
 	return f.Name(), hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// parse reads the title and authors with go-toolkit's EPUB parser (ADR-0002).
-func parse(ctx context.Context, path string) (store.Book, error) {
+// open parses the EPUB at path with go-toolkit's EPUB parser (ADR-0002). It
+// returns a *ParseError for a file the parser refuses.
+func open(ctx context.Context, path string) (*pub.Publication, error) {
 	u, err := url.FromFilepath(path)
 	if err != nil {
-		return store.Book{}, err
+		return nil, err
 	}
 	a := asset.FileWithMediaType(u, &mediatype.EPUB)
 	f, err := a.CreateFetcher(ctx, asset.Dependencies{ArchiveFactory: archive.NewArchiveFactory()}, "")
 	if err != nil {
-		return store.Book{}, &ParseError{Err: err}
+		return nil, &ParseError{Err: err}
 	}
 	builder, err := epub.NewParser(nil).Parse(ctx, a, f)
 	if err != nil {
 		f.Close()
-		return store.Book{}, &ParseError{Err: err}
+		return nil, &ParseError{Err: err}
 	}
-	publication := builder.Build()
+	return builder.Build(), nil
+}
+
+// parse reads the title and authors.
+func parse(ctx context.Context, path string) (store.Book, error) {
+	publication, err := open(ctx, path)
+	if err != nil {
+		return store.Book{}, err
+	}
 	defer publication.Close()
 	meta := publication.Manifest.Metadata
 	book := store.Book{Title: meta.Title(), Authors: []string{}}
