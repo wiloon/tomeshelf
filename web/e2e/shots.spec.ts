@@ -107,6 +107,64 @@ test("waits for a held image before shooting", async ({ shots, shotsDir }) => {
   await expectShots(page, shotsDir, "01-library");
 });
 
+test("captures the bottom after a held image expands the page", async ({
+  shots,
+  shotsDir,
+}) => {
+  const { page } = shots;
+  let release = () => {};
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let seen = () => {};
+  const requested = new Promise<void>((resolve) => {
+    seen = resolve;
+  });
+  await page.route("**/expanding-image.svg", async (route) => {
+    seen();
+    await released;
+    await route.fulfill({
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="2000"></svg>',
+    });
+  });
+  await page.evaluate(() => {
+    const img = document.createElement("img");
+    img.src = "/expanding-image.svg";
+    const marker = document.createElement("div");
+    marker.style.cssText = "height: 100px; background: rgb(255, 0, 0)";
+    document.body.replaceChildren(img, marker);
+  });
+  await requested;
+  const shot = shoot(page, "bottom-after-image", { scrollToBottom: true });
+  await page.waitForTimeout(300);
+  release();
+  await shot;
+
+  const blank = await page.context().newPage();
+  for (const width of [390, 1280]) {
+    const data = (
+      await readFile(path.join(shotsDir, `bottom-after-image-${width}.png`))
+    ).toString("base64");
+    const pixel = await blank.evaluate(async (src) => {
+      const img = new Image();
+      img.src = src;
+      await img.decode();
+      const canvas = document.createElement("canvas");
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Canvas context unavailable");
+      ctx.drawImage(img, 0, 0);
+      return Array.from(
+        ctx.getImageData(canvas.width / 2, canvas.height - 40, 1, 1).data,
+      );
+    }, `data:image/png;base64,${data}`);
+    expect(pixel, `${width} px bottom marker`).toEqual([255, 0, 0, 255]);
+  }
+  await blank.close();
+});
+
 test("shoots a failed image's placeholder", async ({ shots, shotsDir }) => {
   const { page } = shots;
   await importBooks(page, "epub3.epub");

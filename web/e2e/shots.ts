@@ -158,11 +158,6 @@ export async function shoot(
   try {
     for (const viewport of viewports) {
       await page.setViewportSize(viewport);
-      if (scrollToBottom) {
-        await page.evaluate(() =>
-          window.scrollTo(0, document.documentElement.scrollHeight),
-        );
-      }
       await page.evaluate(async () => {
         await document.fonts.ready;
       });
@@ -173,6 +168,11 @@ export async function shoot(
             `${name} at ${viewport.width} px: images still loading after ${imageTimeoutMs} ms: ${pending.join(", ")}`,
           );
         }
+      }
+      if (scrollToBottom) {
+        await page.evaluate(() =>
+          window.scrollTo(0, document.documentElement.scrollHeight),
+        );
       }
       captured.push({
         file: path.join(shotsDir(), `${name}-${viewport.width}.png`),
