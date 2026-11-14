@@ -1,1 +1,74 @@
 @import "tailwindcss";
+
+/* tomeshelf's typography for book text, which keeps none of its own CSS
+   (ADR-0003). */
+#tomeshelf-content {
+  max-width: 38rem;
+  margin-inline: auto;
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+#tomeshelf-content :where(p, ul, ol, dl, blockquote, pre, figure, table, hr) {
+  margin-block: 1em;
+}
+
+#tomeshelf-content :where(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.5em 0.75em;
+  font-weight: 600;
+  line-height: 1.25;
+  text-wrap: balance;
+}
+
+#tomeshelf-content h1 {
+  font-size: 1.75em;
+}
+
+#tomeshelf-content h2 {
+  font-size: 1.5em;
+}
+
+#tomeshelf-content h3 {
+  font-size: 1.25em;
+}
+
+#tomeshelf-content :where(ul, ol) {
+  padding-inline-start: 1.5em;
+}
+
+#tomeshelf-content ul {
+  list-style: disc;
+}
+
+#tomeshelf-content ol {
+  list-style: decimal;
+}
+
+#tomeshelf-content :where(blockquote, dd) {
+  margin-inline: 1.5em;
+}
+
+#tomeshelf-content a[href] {
+  color: var(--color-blue-800);
+  text-decoration: underline;
+}
+
+#tomeshelf-content hr {
+  border-top: 1px solid var(--color-stone-300);
+}
+
+#tomeshelf-content :where(img, svg, video) {
+  max-width: 100%;
+  height: auto;
+}
+
+#tomeshelf-content :where(pre, table) {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+#tomeshelf-content table {
+  display: block;
+}

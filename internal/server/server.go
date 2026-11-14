@@ -14,8 +14,10 @@ import (
 
 // contentSecurityPolicy is the app's CSP baseline (ADR-0004). script-src must
 // stay exactly 'self', and there must be no script-src-elem or script-src-attr
-// directive, so inline and third-party scripts stay blocked.
-const contentSecurityPolicy = "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+// directive, so inline and third-party scripts stay blocked. Trusted Types
+// guard every script sink, and only the Navigator's policy may create
+// TrustedHTML.
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'; require-trusted-types-for 'script'; trusted-types tomeshelf"
 
 const indexHTML = "index.html"
 
@@ -193,7 +195,12 @@ func setPageHeaders(w http.ResponseWriter) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
 
+// isAssetPath reports whether name looks like a build file rather than a
+// page. Reading URLs are always pages, whatever their last segment holds.
 func isAssetPath(name string) bool {
+	if strings.HasPrefix(name, "books/") {
+		return false
+	}
 	return strings.HasPrefix(name, "assets/") || path.Ext(name) != ""
 }
 

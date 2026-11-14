@@ -302,6 +302,8 @@ func TestAfterSetupSignedOutPagesLeadToSignIn(t *testing.T) {
 	cookie := e.setup(t)
 
 	requireRedirect(t, e.get(t, "/"), "/signin")
+	requireRedirect(t, e.get(t, "/books/1/read/1"), "/signin")
+	requireRedirect(t, e.get(t, "/books/1/read/1.5"), "/signin")
 	requireRedirect(t, e.get(t, "/setup"), "/signin")
 	requireJSONError(t, e.get(t, "/api/me"), http.StatusUnauthorized)
 	requireStatus(t, e.get(t, "/signin"), http.StatusOK)
@@ -500,7 +502,9 @@ func TestResetAfterSetupEndsTheSetupSession(t *testing.T) {
 func TestSignedInRootServesShell(t *testing.T) {
 	e := newEnv(t, buildFS())
 	cookie := e.setup(t)
-	for _, path := range []string{"/", "/library"} {
+	// The Navigator answers every reading URL, even one whose n looks like
+	// a file name.
+	for _, path := range []string{"/", "/library", "/books/1/read/2", "/books/1/read/1.5", "/books/x/read/a.xhtml"} {
 		res := e.get(t, path, cookie)
 		requireStatus(t, res, http.StatusOK)
 		if ct := res.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
@@ -582,6 +586,10 @@ func TestShellResponsesCarryCSP(t *testing.T) {
 			"script-src":  "'self'",
 			"object-src":  "'none'",
 			"base-uri":    "'none'",
+			// Trusted Types guard every script sink, and only the
+			// Navigator's policy may create TrustedHTML (ADR-0004).
+			"require-trusted-types-for": "'script'",
+			"trusted-types":             "tomeshelf",
 		} {
 			sources, ok := csp[name]
 			if !ok {
