@@ -9,6 +9,10 @@ export type TestServer = {
   stop: () => Promise<void>;
 };
 
+// The book size cap the test server runs with, so a test can exceed it
+// with a file generated at test time.
+export const maxBookMB = 1;
+
 // Starts the built tomeshelf binary on a free port with a fresh data
 // directory. stop ends the binary and removes the directory.
 export async function startServer(): Promise<TestServer> {
@@ -18,6 +22,7 @@ export async function startServer(): Promise<TestServer> {
   const dataDir = await mkdtemp(path.join(tmpdir(), "tomeshelf-e2e-"));
   const child = spawn(bin, ["-addr", "127.0.0.1:0", "-data", dataDir], {
     stdio: ["ignore", "inherit", "pipe"],
+    env: { ...process.env, TOMESHELF_MAX_BOOK_MB: String(maxBookMB) },
   });
   const exited = new Promise<void>((resolve) => child.once("exit", resolve));
 

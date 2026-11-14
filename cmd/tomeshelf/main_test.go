@@ -20,11 +20,16 @@ import (
 // start runs the binary's run path on dataDir until the test stops it.
 func start(t *testing.T, dataDir string) (string, func()) {
 	t.Helper()
+	return startWith(t, config{addr: "127.0.0.1:0", dataDir: dataDir, maxBookMB: 200})
+}
+
+func startWith(t *testing.T, cfg config) (string, func()) {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	listening := make(chan string, 1)
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, "127.0.0.1:0", dataDir, slog.New(slog.DiscardHandler), func(addr string) { listening <- addr })
+		done <- run(ctx, cfg, slog.New(slog.DiscardHandler), func(addr string) { listening <- addr })
 	}()
 	select {
 	case addr := <-listening:
@@ -128,12 +133,77 @@ func TestStartupFailsOnABrokenDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	listened := false
-	err := run(context.Background(), "127.0.0.1:0", dataDir, slog.New(slog.DiscardHandler), func(string) { listened = true })
+	err := run(context.Background(), config{addr: "127.0.0.1:0", dataDir: dataDir, maxBookMB: 200}, slog.New(slog.DiscardHandler), func(string) { listened = true })
 	if err == nil {
 		t.Fatal("run succeeded on a broken database")
 	}
 	if listened {
 		t.Error("run listened before the migrations succeeded")
+	}
+}
+
+func TestTheBookSizeCapComesFromTheFlagOrTheEnvironment(t *testing.T) {
+	for name, tc := range map[string]struct {
+		args []string
+		env  map[string]string
+		want int64
+	}{
+		"default":           {nil, nil, 200},
+		"environment":       {nil, map[string]string{"TOMESHELF_MAX_BOOK_MB": "1"}, 1},
+		"flag":              {[]string{"-max-book-mb", "3"}, nil, 3},
+		"flag over the env": {[]string{"-max-book-mb", "3"}, map[string]string{"TOMESHELF_MAX_BOOK_MB": "1"}, 3},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := parseConfig(tc.args, func(key string) (string, bool) {
+				v, ok := tc.env[key]
+				return v, ok
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.maxBookMB != tc.want {
+				t.Errorf("maxBookMB = %d, want %d", cfg.maxBookMB, tc.want)
+			}
+		})
+	}
+	for _, bad := range []string{"0", "-1", "lots"} {
+		if _, err := parseConfig([]string{"-max-book-mb", bad}, func(string) (string, bool) { return "", false }); err == nil {
+			t.Errorf("-max-book-mb %s: no error", bad)
+		}
+		if _, err := parseConfig(nil, func(string) (string, bool) { return bad, true }); err == nil {
+			t.Errorf("TOMESHELF_MAX_BOOK_MB=%s: no error", bad)
+		}
+	}
+
+	cfg, err := parseConfig([]string{"-addr", "127.0.0.1:0", "-data", t.TempDir()}, func(key string) (string, bool) {
+		return "1", key == "TOMESHELF_MAX_BOOK_MB"
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	url, _ := startWith(t, cfg)
+	setup := post(t, url+"/api/setup", "admin", "a password")
+	requireStatus(t, setup, http.StatusCreated)
+	upload := func(size int) int {
+		req, err := http.NewRequest(http.MethodPost, url+"/api/books", strings.NewReader(strings.Repeat("x", size)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, c := range setup.Cookies() {
+			req.AddCookie(c)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	if code := upload(1<<20 + 1); code != http.StatusRequestEntityTooLarge {
+		t.Errorf("upload of 1 MB + 1 byte = %d, want 413", code)
+	}
+	if code := upload(1 << 20); code != http.StatusUnprocessableEntity {
+		t.Errorf("upload of 1 MB that is no EPUB = %d, want 422", code)
 	}
 }
 

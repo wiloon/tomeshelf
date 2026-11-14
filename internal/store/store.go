@@ -1,5 +1,6 @@
 // Package store keeps tomeshelf's data in SQLite: the embedded schema
-// migrations, and the users and sessions behind sign-in (ADR-0008, ADR-0009).
+// migrations, the users and sessions behind sign-in (ADR-0008, ADR-0009), and
+// each user's library.
 package store
 
 import (
@@ -9,6 +10,7 @@ import (
 	"database/sql"
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -29,6 +31,7 @@ var (
 	ErrUnknownUser     = errors.New("unknown user")
 	ErrPasswordChanged = errors.New("the password changed after it was read")
 	ErrNoSession       = errors.New("no valid session")
+	ErrBookExists      = errors.New("the book is already in the library")
 )
 
 //go:embed migrations/*.sql
@@ -190,6 +193,60 @@ func (s *Store) ResetPassword(ctx context.Context, username, passwordHash string
 		}
 		return q.DeleteUserSessions(ctx, id)
 	})
+}
+
+// Book is one book in a user's library. SHA256 is the hex digest of its
+// original EPUB, which names the file (ADR-0007).
+type Book struct {
+	ID      int64
+	SHA256  string
+	Title   string
+	Authors []string
+}
+
+// AddBook adds the book to the user's library and returns it with its id. It
+// returns ErrBookExists, and changes nothing, when the user's library already
+// has a book with the same SHA256.
+func (s *Store) AddBook(ctx context.Context, username string, b Book) (Book, error) {
+	if b.Authors == nil {
+		b.Authors = []string{}
+	}
+	authors, err := json.Marshal(b.Authors)
+	if err != nil {
+		return Book{}, err
+	}
+	id, err := s.q.InsertBook(ctx, dbq.InsertBookParams{
+		Username:   username,
+		Sha256:     b.SHA256,
+		Title:      b.Title,
+		Authors:    string(authors),
+		ImportedAt: s.Now().Unix(),
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Book{}, ErrBookExists
+	}
+	if err != nil {
+		return Book{}, err
+	}
+	b.ID = id
+	return b, nil
+}
+
+// Books returns the user's library, ordered by title.
+func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
+	rows, err := s.q.ListBooks(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	books := make([]Book, 0, len(rows))
+	for _, row := range rows {
+		b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title}
+		if err := json.Unmarshal([]byte(row.Authors), &b.Authors); err != nil {
+			return nil, fmt.Errorf("book %d authors: %w", row.ID, err)
+		}
+		books = append(books, b)
+	}
+	return books, nil
 }
 
 func (s *Store) inTx(ctx context.Context, fn func(*dbq.Queries) error) error {

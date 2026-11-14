@@ -4,6 +4,15 @@
 
 package dbq
 
+type Book struct {
+	ID         int64
+	UserID     int64
+	Sha256     string
+	Title      string
+	Authors    string
+	ImportedAt int64
+}
+
 type Session struct {
 	TokenHash []byte
 	UserID    int64
