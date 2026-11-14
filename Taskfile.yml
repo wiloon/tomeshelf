@@ -69,6 +69,23 @@ tasks:
       - task: build
       - task: test:go
 
+  deploy:check:
+    desc: Check the deployment examples in deploy/. Needs Docker with Compose, ko, curl and jq.
+    cmds:
+      - task: deploy:check:kubernetes
+      - task: deploy:check:compose
+
+  deploy:check:kubernetes:
+    desc: Validate the Kubernetes example and its single-replica rules. Needs no cluster.
+    cmds:
+      - bash deploy/check-kubernetes.sh
+
+  deploy:check:compose:
+    desc: Build the image into the local Docker daemon with ko and smoke-test the Compose example on it.
+    cmds:
+      - task: build:web
+      - bash deploy/check-compose.sh
+
   e2e:
     desc: Build the binary, start it, and run the Playwright tests against it.
     cmds:

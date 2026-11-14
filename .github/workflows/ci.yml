@@ -85,6 +85,26 @@ jobs:
           KO_DOCKER_REPO: ghcr.io/${{ github.repository }}
         run: ko build --push=false --bare --platform=linux/amd64,linux/arm64 ./cmd/tomeshelf
 
+  deploy:
+    name: deploy examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: go-task/setup-task@v1
+      - uses: ko-build/setup-ko@v0.9
+      - run: task deploy:check
+
   dco:
     name: DCO
     if: github.event_name == 'pull_request'

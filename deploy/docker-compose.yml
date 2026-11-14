@@ -1,0 +1,31 @@
+# tomeshelf with Docker Compose: one container, its data on a named volume.
+# Start it with `docker compose up -d` and open http://localhost:8080.
+# Put a reverse proxy with TLS in front of it before exposing it.
+services:
+  # The image runs as the nonroot user, uid 65532, and a new volume belongs to
+  # root. This one-shot container hands the volume to uid 65532, so tomeshelf
+  # itself never runs as root.
+  data-permissions:
+    image: busybox:1.37
+    user: root
+    command: chown 65532:65532 /var/lib/tomeshelf
+    volumes:
+      - tomeshelf-data:/var/lib/tomeshelf
+
+  tomeshelf:
+    image: ${TOMESHELF_IMAGE:-ghcr.io/wiloon/tomeshelf:latest}
+    restart: unless-stopped
+    depends_on:
+      data-permissions:
+        condition: service_completed_successfully
+    environment:
+      TOMESHELF_ADDR: ":8080"
+      TOMESHELF_DATA: /var/lib/tomeshelf
+      TOMESHELF_MAX_BOOK_MB: "200"
+    ports:
+      - "8080:8080"
+    volumes:
+      - tomeshelf-data:/var/lib/tomeshelf
+
+volumes:
+  tomeshelf-data:

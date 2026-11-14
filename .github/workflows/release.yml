@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  image:
+    name: publish image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: go-task/setup-task@v1
+      - uses: ko-build/setup-ko@v0.9
+      - run: task build:web
+      - name: Sign in to GHCR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | ko login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build and publish the image
+        env:
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository }}
+        run: >-
+          ko build --bare --platform=linux/amd64,linux/arm64
+          --tags="$GITHUB_REF_NAME,latest"
+          --image-label="org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+          ./cmd/tomeshelf
