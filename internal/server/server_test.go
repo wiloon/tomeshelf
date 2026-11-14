@@ -15,6 +15,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/wiloon/tomeshelf/internal/library"
 	"github.com/wiloon/tomeshelf/internal/password"
 	"github.com/wiloon/tomeshelf/internal/server"
 	"github.com/wiloon/tomeshelf/internal/store"
@@ -38,24 +39,54 @@ func buildFS() fstest.MapFS {
 }
 
 type env struct {
-	h      http.Handler
-	store  *store.Store
-	dbPath string
+	h       http.Handler
+	store   *store.Store
+	dbPath  string
+	dataDir string
 }
 
-func newEnvWith(t *testing.T, build fstest.MapFS, wrap func(*store.Store) server.Accounts) env {
+type envOptions struct {
+	accounts     func(*store.Store) server.Accounts
+	books        func(*store.Store) library.Store
+	maxBookBytes int64
+	dataDir      string
+}
+
+const defaultMaxBookBytes = 200 << 20
+
+func openEnv(t *testing.T, build fstest.MapFS, opts envOptions) env {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "tomeshelf.db")
+	if opts.dataDir == "" {
+		opts.dataDir = t.TempDir()
+	}
+	if opts.maxBookBytes == 0 {
+		opts.maxBookBytes = defaultMaxBookBytes
+	}
+	path := filepath.Join(opts.dataDir, "tomeshelf.db")
 	st, err := store.Open(context.Background(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	var accounts server.Accounts = st
-	if wrap != nil {
-		accounts = wrap(st)
+	if opts.accounts != nil {
+		accounts = opts.accounts(st)
 	}
-	return env{h: server.New(build, slog.New(slog.DiscardHandler), accounts), store: st, dbPath: path}
+	var books library.Store = st
+	if opts.books != nil {
+		books = opts.books(st)
+	}
+	lib, err := library.Open(opts.dataDir, books)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := server.New(build, slog.New(slog.DiscardHandler), accounts, lib, opts.maxBookBytes)
+	return env{h: h, store: st, dbPath: path, dataDir: opts.dataDir}
+}
+
+func newEnvWith(t *testing.T, build fstest.MapFS, wrap func(*store.Store) server.Accounts) env {
+	t.Helper()
+	return openEnv(t, build, envOptions{accounts: wrap})
 }
 
 func newEnv(t *testing.T, build fstest.MapFS) env {
@@ -277,7 +308,7 @@ func TestAfterSetupSignedOutPagesLeadToSignIn(t *testing.T) {
 
 	requireRedirect(t, e.get(t, "/setup", cookie), "/")
 	requireRedirect(t, e.get(t, "/signin", cookie), "/")
-	requireJSONError(t, e.get(t, "/api/books", cookie), http.StatusNotFound)
+	requireJSONError(t, e.get(t, "/api/nothing-here", cookie), http.StatusNotFound)
 }
 
 func TestSignIn(t *testing.T) {

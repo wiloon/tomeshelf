@@ -134,7 +134,7 @@ export function SignInPage() {
   );
 }
 
-export function Home() {
+export function AccountBar() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const me = useQuery({ queryKey: ["me"], queryFn: fetchMe });

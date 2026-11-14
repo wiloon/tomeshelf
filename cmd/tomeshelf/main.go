@@ -12,15 +12,18 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/wiloon/tomeshelf/internal/library"
 	"github.com/wiloon/tomeshelf/internal/password"
 	"github.com/wiloon/tomeshelf/internal/server"
 	"github.com/wiloon/tomeshelf/internal/store"
@@ -34,37 +37,76 @@ func main() {
 		os.Exit(resetPassword(os.Args[2:], os.Stdin, os.Stderr))
 	}
 
-	addr := flag.String("addr", envOr("TOMESHELF_ADDR", ":8080"), "address to listen on")
-	dataDir := flag.String("data", envOr("TOMESHELF_DATA", "./data"), "data directory")
-	flag.Parse()
+	cfg, err := parseConfig(os.Args[1:], os.LookupEnv)
+	if errors.Is(err, flag.ErrHelp) {
+		os.Exit(0)
+	}
+	if err != nil {
+		os.Exit(2)
+	}
 
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
 	slog.SetDefault(logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, *addr, *dataDir, logger, nil); err != nil {
+	if err := run(ctx, cfg, logger, nil); err != nil {
 		logger.Error("tomeshelf stopped", "err", err)
 		os.Exit(1)
 	}
 }
 
-// run opens the database in dataDir and applies its migrations, then serves
-// on addr until ctx is done. listening, if not nil, gets the address once the
-// server listens.
-func run(ctx context.Context, addr, dataDir string, logger *slog.Logger, listening func(addr string)) error {
-	st, err := openStore(ctx, dataDir)
+type config struct {
+	addr      string
+	dataDir   string
+	maxBookMB int64
+}
+
+// parseConfig reads the server's flags from args. Each flag's default comes
+// from its environment variable, looked up with lookupEnv.
+func parseConfig(args []string, lookupEnv func(string) (string, bool)) (config, error) {
+	envOr := func(key, fallback string) string {
+		if v, ok := lookupEnv(key); ok {
+			return v
+		}
+		return fallback
+	}
+	flags := flag.NewFlagSet("tomeshelf", flag.ContinueOnError)
+	addr := flags.String("addr", envOr("TOMESHELF_ADDR", ":8080"), "address to listen on")
+	dataDir := flags.String("data", envOr("TOMESHELF_DATA", "./data"), "data directory")
+	maxBookMB := flags.String("max-book-mb", envOr("TOMESHELF_MAX_BOOK_MB", "200"), "largest EPUB to import, in MB")
+	if err := flags.Parse(args); err != nil {
+		return config{}, err
+	}
+	mb, err := strconv.ParseInt(*maxBookMB, 10, 64)
+	if err != nil || mb < 1 || mb > math.MaxInt64>>20 {
+		err := fmt.Errorf("-max-book-mb / TOMESHELF_MAX_BOOK_MB = %q: want a whole number of MB, at least 1", *maxBookMB)
+		fmt.Fprintln(flags.Output(), err)
+		return config{}, err
+	}
+	return config{addr: *addr, dataDir: *dataDir, maxBookMB: mb}, nil
+}
+
+// run opens the database and the library in the data directory and applies
+// the migrations, then serves on cfg.addr until ctx is done. listening, if
+// not nil, gets the address once the server listens.
+func run(ctx context.Context, cfg config, logger *slog.Logger, listening func(addr string)) error {
+	st, err := openStore(ctx, cfg.dataDir)
 	if err != nil {
 		return err
 	}
 	defer st.Close()
+	books, err := library.Open(cfg.dataDir, st)
+	if err != nil {
+		return err
+	}
 
-	ln, err := net.Listen("tcp", addr)
+	ln, err := net.Listen("tcp", cfg.addr)
 	if err != nil {
 		return err
 	}
 	srv := &http.Server{
-		Handler:           server.New(web.Build(), logger, st),
+		Handler:           server.New(web.Build(), logger, st, books, cfg.maxBookMB<<20),
 		ReadHeaderTimeout: 10 * time.Second,
 		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelError),
 	}

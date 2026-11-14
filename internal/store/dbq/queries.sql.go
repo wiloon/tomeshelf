@@ -72,6 +72,34 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 	return i, err
 }
 
+const insertBook = `-- name: InsertBook :one
+INSERT INTO books (user_id, sha256, title, authors, imported_at)
+VALUES ((SELECT id FROM users WHERE username = ?1), ?2, ?3, ?4, ?5)
+ON CONFLICT (user_id, sha256) DO NOTHING
+RETURNING id
+`
+
+type InsertBookParams struct {
+	Username   string
+	Sha256     string
+	Title      string
+	Authors    string
+	ImportedAt int64
+}
+
+func (q *Queries) InsertBook(ctx context.Context, arg InsertBookParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertBook,
+		arg.Username,
+		arg.Sha256,
+		arg.Title,
+		arg.Authors,
+		arg.ImportedAt,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
 const insertFirstUser = `-- name: InsertFirstUser :one
 INSERT INTO users (username, password_hash)
 SELECT CAST(?1 AS TEXT), CAST(?2 AS TEXT)
@@ -131,6 +159,48 @@ func (q *Queries) InsertSessionIfPasswordHash(ctx context.Context, arg InsertSes
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const listBooks = `-- name: ListBooks :many
+SELECT books.id, books.sha256, books.title, books.authors
+FROM books JOIN users ON users.id = books.user_id
+WHERE users.username = ?
+ORDER BY books.title COLLATE NOCASE, books.id
+`
+
+type ListBooksRow struct {
+	ID      int64
+	Sha256  string
+	Title   string
+	Authors string
+}
+
+func (q *Queries) ListBooks(ctx context.Context, username string) ([]ListBooksRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBooks, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBooksRow
+	for rows.Next() {
+		var i ListBooksRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Sha256,
+			&i.Title,
+			&i.Authors,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updatePasswordHash = `-- name: UpdatePasswordHash :one

@@ -4,7 +4,8 @@ import {
   createRouter,
   type RouterHistory,
 } from "@tanstack/react-router";
-import { Home, SetupPage, SignInPage } from "./auth";
+import { SetupPage, SignInPage } from "./auth";
+import { LibraryPage } from "./library";
 import { Shell } from "./shell";
 
 const rootRoute = createRootRoute({ component: Shell });
@@ -12,7 +13,7 @@ const rootRoute = createRootRoute({ component: Shell });
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
-  component: Home,
+  component: LibraryPage,
 });
 
 const setupRoute = createRoute({
