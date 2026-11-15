@@ -290,7 +290,13 @@
 }
 
 :root[data-reading-layout="pages"] #tomeshelf-content :where(img, svg, video) {
-  max-height: 100%;
+  max-height: var(--reading-page-height, 100%);
+  break-inside: avoid;
+}
+
+/* A figure that fits stays on one page; when its caption is taller than a
+   page the avoid is ignored and only the image (above) stays unbroken. */
+:root[data-reading-layout="pages"] #tomeshelf-content figure {
   break-inside: avoid;
 }
 
@@ -299,7 +305,7 @@
   figure
   :where(img, svg, video) {
   break-inside: avoid;
-  max-height: 100%;
+  max-height: var(--reading-page-height, 100%);
 }
 
 :root[data-reading-layout="pages"]

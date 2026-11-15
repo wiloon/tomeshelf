@@ -53,6 +53,11 @@ function applyMetrics(
     `${metrics.spreadWidth}px`,
   );
   article.style.setProperty("--reading-column-gap", `${metrics.gap}px`);
+  // Cap media to the page box; % max-height inside a figure has no definite CB.
+  article.style.setProperty(
+    "--reading-page-height",
+    `${article.clientHeight}px`,
+  );
   return metrics;
 }
 
@@ -312,6 +317,7 @@ export function attachPagesController(
       article.style.removeProperty("--reading-page-width");
       article.parentElement?.style.removeProperty("--reading-spread-width");
       article.style.removeProperty("--reading-column-gap");
+      article.style.removeProperty("--reading-page-height");
       article.style.removeProperty("--reading-scroll-end");
     },
     relayout,
