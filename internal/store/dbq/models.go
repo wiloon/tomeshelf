@@ -4,6 +4,10 @@
 
 package dbq
 
+import (
+	"database/sql"
+)
+
 type Book struct {
 	ID         int64
 	UserID     int64
@@ -11,6 +15,24 @@ type Book struct {
 	Title      string
 	Authors    string
 	ImportedAt int64
+}
+
+type ReadingPosition struct {
+	BookID           int64
+	Href             string
+	Progression      float64
+	TotalProgression float64
+	CssSelector      sql.NullString
+	CharacterOffset  sql.NullInt64
+	TextBefore       sql.NullString
+	TextHighlight    sql.NullString
+	TextAfter        sql.NullString
+}
+
+type ReadingPositionTab struct {
+	BookID          int64
+	TabID           string
+	HighestSequence int64
 }
 
 type ReadingSetting struct {

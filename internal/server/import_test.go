@@ -23,9 +23,10 @@ import (
 )
 
 type listedBook struct {
-	ID      int64    `json:"id"`
-	Title   string   `json:"title"`
-	Authors []string `json:"authors"`
+	ID       int64    `json:"id"`
+	Title    string   `json:"title"`
+	Authors  []string `json:"authors"`
+	Progress *int     `json:"progress"`
 }
 
 func fixture(t *testing.T, name string) []byte {
