@@ -60,19 +60,20 @@ RETURNING sha256;
 SELECT EXISTS (SELECT 1 FROM books WHERE sha256 = ?);
 
 -- name: GetReadingSettings :one
-SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme
+SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout
 FROM reading_settings JOIN users ON users.id = reading_settings.user_id
 WHERE users.username = ?;
 
 -- name: PutReadingSettings :execrows
-INSERT INTO reading_settings (user_id, font_size, line_height, width, theme)
-SELECT id, sqlc.arg(font_size), sqlc.arg(line_height), sqlc.arg(width), sqlc.arg(theme)
+INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout)
+SELECT id, sqlc.arg(font_size), sqlc.arg(line_height), sqlc.arg(width), sqlc.arg(theme), sqlc.arg(layout)
 FROM users WHERE username = sqlc.arg(username)
 ON CONFLICT (user_id) DO UPDATE SET
     font_size = excluded.font_size,
     line_height = excluded.line_height,
     width = excluded.width,
-    theme = excluded.theme;
+    theme = excluded.theme,
+    layout = excluded.layout;
 
 -- name: GetReadingPosition :one
 SELECT reading_positions.href, reading_positions.progression, reading_positions.total_progression,

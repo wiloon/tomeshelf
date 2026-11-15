@@ -12,11 +12,14 @@ import { createSaveQueue, type SaveStatus } from "./save-queue";
 
 export type Theme = "light" | "dark" | "sepia";
 
+export type Layout = "pages" | "scroll";
+
 export type ReadingSettings = {
   fontSize: number;
   lineHeight: number;
   width: number;
   theme: Theme;
+  layout: Layout;
 };
 
 export const defaultSettings: ReadingSettings = {
@@ -24,6 +27,7 @@ export const defaultSettings: ReadingSettings = {
   lineHeight: 1.6,
   width: 38,
   theme: "light",
+  layout: "pages",
 };
 
 type Stepped = "fontSize" | "lineHeight" | "width";
@@ -38,6 +42,11 @@ const themes: { value: Theme; label: string }[] = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "sepia", label: "Sepia" },
+];
+
+const layouts: { value: Layout; label: string }[] = [
+  { value: "pages", label: "Pages" },
+  { value: "scroll", label: "Scroll" },
 ];
 
 type SettingsState = {
@@ -193,7 +202,8 @@ export function changesLayout(a: ReadingSettings, b: ReadingSettings) {
   return (
     a.fontSize !== b.fontSize ||
     a.lineHeight !== b.lineHeight ||
-    a.width !== b.width
+    a.width !== b.width ||
+    a.layout !== b.layout
   );
 }
 
@@ -205,6 +215,7 @@ export function applyToPage(settings: ReadingSettings) {
   root.style.setProperty("--reading-line-height", String(settings.lineHeight));
   root.style.setProperty("--reading-width", `${settings.width}rem`);
   root.dataset.readingTheme = settings.theme;
+  root.dataset.readingLayout = settings.layout;
 }
 
 // Takes the settings off the root element, so other pages look as before.
@@ -218,6 +229,7 @@ export function clearFromPage() {
     root.style.removeProperty(name);
   }
   delete root.dataset.readingTheme;
+  delete root.dataset.readingLayout;
 }
 
 function Stepper({
@@ -314,6 +326,23 @@ export function SettingsPanel({
           format={(v) => v.toFixed(1)}
         />
         <Stepper name="Text width" setting="width" format={(v) => `${v} rem`} />
+        <fieldset className="flex items-center justify-between gap-4">
+          <legend className="float-left">Layout</legend>
+          <div className="flex gap-3">
+            {layouts.map(({ value, label }) => (
+              <label key={value} className="flex items-center gap-1">
+                <input
+                  type="radio"
+                  name="reading-layout"
+                  value={value}
+                  checked={settings.layout === value}
+                  onChange={() => setSettings({ ...settings, layout: value })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <fieldset className="flex items-center justify-between gap-4">
           <legend className="float-left">Theme</legend>
           <div className="flex gap-3">
