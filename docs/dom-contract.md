@@ -25,6 +25,15 @@ tomeshelf is a single-page app. When the reader moves to another document, the p
 
 Watch the page (for example with a `MutationObserver`) to notice a move.
 
+## Pages and scrolling
+
+A reader can show a document as one scroll or as pages (ADR-0010). In the pages layout the article itself scrolls horizontally, one spread of one or two pages at a time, and the window does not scroll. Text on other pages is in the DOM but outside the article's visible box.
+
+- To bring an element into view, call `element.scrollIntoView()`. It works in both layouts; tomeshelf then aligns the article to the spread holding it.
+- To tell whether text is visible, compare its box with the article's box (`getBoundingClientRect()`), not with the window.
+
+The layout is not part of the contract: do not depend on the article's CSS.
+
 ## Reserved: `tomeshelf:restores-position`
 
 `<meta name="tomeshelf:restores-position" content="true">` is reserved. It will declare that tomeshelf itself reopens a book at its reading position, so an extension that also tracks reading positions should not offer its own "continue reading" jump on these pages.

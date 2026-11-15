@@ -15,5 +15,9 @@ For a general-purpose reader the iframe is the right call: it isolates the publi
 
 ## Consequences
 
-- v1 scrolls; it has no pagination. If pagination comes later, it uses CSS columns on an ordinary element, as Kavita does, not an iframe.
+- v1 scrolls; it has no pagination. Pagination uses CSS columns on the article itself, not an iframe (ADR-0010).
 - Any later change that moves book text out of the main document breaks ENX. ADR-0006's contract tests guard against this.
+
+## Revisions
+
+- 2026-11-14, ADR-0010: pagination is now decided, with CSS columns on the article.
