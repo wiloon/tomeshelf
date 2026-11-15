@@ -19,8 +19,20 @@ _Avoid_: Upload (the transport, not the act), ingest
 ## Reading
 
 **Document**:
-One XHTML file in a book's reading order, read as one continuous scroll at its own address.
+One XHTML file in a book's reading order, shown at its own address.
 _Avoid_: Chapter (a document may hold several chapters, or part of one), page, spine item
+
+**Layout**:
+How the reader arranges a document on screen: as pages, or as one continuous scroll.
+_Avoid_: Mode, view
+
+**Page**:
+One column of a document's text in the pages layout, as tall as the window allows.
+_Avoid_: Screen, column; never a synonym for document
+
+**Spread**:
+The one or two pages shown at the same time.
+_Avoid_: Screen, view, two-page view
 
 **Table of contents entry**:
 A named point in a book that the user can jump to; it points into a document, not necessarily at its start.
