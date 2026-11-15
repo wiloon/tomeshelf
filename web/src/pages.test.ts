@@ -49,12 +49,12 @@ test("turning a spread scrolls by one page pitch times the pages in the spread",
   ).toBe(848);
 });
 
-test("scroll offsets snap to the nearest spread start", () => {
+test("scroll offsets snap to the containing spread start", () => {
   expect(snapSpreadOffset(0, 848)).toBe(0);
   expect(snapSpreadOffset(100, 848)).toBe(0);
-  expect(snapSpreadOffset(500, 848)).toBe(848);
+  expect(snapSpreadOffset(500, 848)).toBe(0);
   expect(snapSpreadOffset(849, 848)).toBe(848);
-  expect(snapSpreadOffset(1300, 848)).toBe(1696);
+  expect(snapSpreadOffset(1300, 848)).toBe(848);
 });
 
 test("arrow and page keys turn a spread, modifiers and form controls do not", () => {

@@ -315,8 +315,11 @@ function useSettingsOnPage(
     const previous = applied.current;
     applied.current = settings;
     if (settings.layout === "pages") {
-      applyToPage(settings);
-      pagesRef.current?.relayout();
+      if (pagesRef.current && previous && changesLayout(previous, settings)) {
+        pagesRef.current.relayout(() => applyToPage(settings));
+      } else {
+        applyToPage(settings);
+      }
     } else if (previous && changesLayout(previous, settings)) {
       keepingAnchor(document.getElementById(contentId), () =>
         applyToPage(settings),

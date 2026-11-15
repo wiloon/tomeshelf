@@ -263,9 +263,18 @@
   column-width: var(--reading-page-width, var(--reading-width, 38rem));
   column-gap: var(--reading-column-gap, 24px);
   column-fill: auto;
+  position: relative;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
+}
+
+:root[data-reading-layout="pages"] #tomeshelf-content::after {
+  content: "";
+  position: absolute;
+  left: var(--reading-scroll-end, 0px);
+  width: 1px;
+  height: 1px;
 }
 
 :root[data-reading-layout="pages"] #tomeshelf-content::-webkit-scrollbar {
@@ -277,7 +286,7 @@
   > nav[aria-label="Reading order"] {
   flex-shrink: 0;
   width: var(--reading-spread-width, var(--reading-width, 38rem));
-  max-width: none;
+  max-width: 100%;
 }
 
 :root[data-reading-layout="pages"] #tomeshelf-content :where(img, svg, video) {

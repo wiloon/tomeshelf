@@ -41,7 +41,7 @@ export function snapSpreadOffset(scrollLeft: number, step: number): number {
   if (step <= 0) {
     return 0;
   }
-  return Math.round(scrollLeft / step) * step;
+  return Math.floor((scrollLeft + 1) / step) * step;
 }
 
 export type Turn = "next" | "previous";

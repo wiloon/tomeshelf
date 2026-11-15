@@ -98,9 +98,11 @@ test("the pages layout never scrolls the window at phone and desktop widths", as
     expect(g?.windowScrollY, `at ${width}`).toBe(0);
     expect(g?.windowOverflowY, `at ${width}`).toBe(0);
     expect(g?.windowOverflowX, `at ${width}`).toBe(0);
-    await expect(
-      page.getByRole("navigation", { name: "Reading order" }),
-    ).toBeInViewport();
+    const next = control(page, "Next");
+    const box = await next.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
   }
 });
 
@@ -297,4 +299,133 @@ test("scrollIntoView on a later block shows its spread", async ({ page }) => {
     return left > 0;
   });
   expect(aligned).toBe(true);
+});
+
+test("an odd final page starts its own spread", async ({ page }) => {
+  await openBook(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await article(page).evaluate((el) => {
+    el.replaceChildren();
+    for (let i = 0; i < 5; i++) {
+      const block = document.createElement("div");
+      block.textContent = `Page ${i + 1}`;
+      if (i < 4) {
+        block.style.height = "100%";
+        block.style.breakAfter = "column";
+      }
+      el.append(block);
+    }
+  });
+  await control(page, "Next").click();
+  const step = (await pagesGeometry(page))!.articleScrollLeft;
+  await control(page, "Next").click();
+  expect((await pagesGeometry(page))!.articleScrollLeft).toBeCloseTo(
+    step * 2,
+    0,
+  );
+  await control(page, "Previous").click();
+  expect((await pagesGeometry(page))!.articleScrollLeft).toBeCloseTo(step, 0);
+});
+
+test("wheel momentum does not turn a second spread across documents", async ({
+  page,
+}) => {
+  const id = await openBook(page);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await article(page).evaluate((el) => {
+    el.scrollLeft = el.scrollWidth;
+  });
+  await page.waitForTimeout(100);
+  const wheel = () =>
+    article(page).evaluate((el) =>
+      el.dispatchEvent(
+        new WheelEvent("wheel", {
+          deltaY: 40,
+          bubbles: true,
+          cancelable: true,
+        }),
+      ),
+    );
+  await wheel();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  await expect(article(page)).toContainText("Document Two");
+  await wheel();
+  expect((await pagesGeometry(page))?.articleScrollLeft).toBe(0);
+});
+
+test("font size changes keep the first visible character on the spread", async ({
+  page,
+}) => {
+  await openBook(page);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await control(page, "Next").click();
+  await article(page).evaluate((el) => {
+    const root = el.getBoundingClientRect();
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let node = walker.nextNode() as Text | null;
+    while (node) {
+      for (let i = 0; i < node.length; i++) {
+        const range = document.createRange();
+        range.setStart(node, i);
+        range.setEnd(node, i + 1);
+        const rect = range.getBoundingClientRect();
+        if (
+          rect.width &&
+          rect.right > root.left + 1 &&
+          rect.left < root.right - 1 &&
+          rect.bottom > root.top + 1 &&
+          rect.top < root.bottom - 1
+        ) {
+          Reflect.set(window, "testAnchor", range);
+          return;
+        }
+      }
+      node = walker.nextNode() as Text | null;
+    }
+    throw new Error("No visible character");
+  });
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Increase font size" }).click();
+  expect(
+    await article(page).evaluate((el) => {
+      const range = Reflect.get(window, "testAnchor") as Range;
+      const a = el.getBoundingClientRect();
+      const b = range.getBoundingClientRect();
+      return (
+        b.right > a.left &&
+        b.left < a.right &&
+        b.bottom > a.top &&
+        b.top < a.bottom
+      );
+    }),
+  ).toBe(true);
+});
+
+test("scrollIntoView keeps a right-page target visible after snapping", async ({
+  page,
+}) => {
+  await openBook(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await article(page).evaluate((el) => {
+    el.replaceChildren();
+    for (let i = 0; i < 6; i++) {
+      const block = document.createElement("div");
+      block.textContent = `Page ${i + 1}`;
+      block.id = `test-page-${i + 1}`;
+      block.style.height = "100%";
+      if (i < 5) block.style.breakAfter = "column";
+      el.append(block);
+    }
+    document.getElementById("test-page-4")?.scrollIntoView({ inline: "start" });
+  });
+  await page.waitForTimeout(150);
+  expect(
+    await page.locator("#test-page-4").evaluate((el) => {
+      const root = document
+        .getElementById("tomeshelf-content")!
+        .getBoundingClientRect();
+      const target = el.getBoundingClientRect();
+      return target.left < root.right && target.right > root.left;
+    }),
+  ).toBe(true);
 });

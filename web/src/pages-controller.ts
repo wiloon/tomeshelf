@@ -13,7 +13,7 @@ import {
 
 export type PagesController = {
   destroy: () => void;
-  relayout: () => void;
+  relayout: (apply?: () => void) => void;
   turn: (direction: Turn) => boolean;
   atStart: () => boolean;
   atEnd: () => boolean;
@@ -31,6 +31,7 @@ export type PagesControllerOptions = {
 
 const wheelQuietMs = 300;
 const swipeMinPx = 40;
+const wheelBurst = new WheelBurst(wheelQuietMs);
 
 function remPx(): number {
   return Number.parseFloat(getComputedStyle(document.documentElement).fontSize);
@@ -47,7 +48,7 @@ function applyMetrics(
     columnGapPx,
   );
   article.style.setProperty("--reading-page-width", `${metrics.pageWidth}px`);
-  article.style.setProperty(
+  article.parentElement?.style.setProperty(
     "--reading-spread-width",
     `${metrics.spreadWidth}px`,
   );
@@ -143,8 +144,9 @@ export function attachPagesController(
   options: PagesControllerOptions,
 ): PagesController {
   const { article, availableWidth, textWidthRem, onExhausted } = options;
-  const burst = new WheelBurst(wheelQuietMs);
+  const burst = wheelBurst;
   let step = 0;
+  let twoPages = false;
   let snapping = false;
   let touchStartX: number | null = null;
   let touchStartY: number | null = null;
@@ -152,16 +154,31 @@ export function attachPagesController(
   const measure = () => {
     const metrics = applyMetrics(article, availableWidth(), textWidthRem());
     step = spreadStep(metrics);
+    twoPages = metrics.pagesPerSpread === 2;
     return metrics;
   };
 
   const atStart = () => article.scrollLeft <= 1;
   const atEnd = () => article.scrollLeft >= maxScroll(article) - 1;
 
+  function extendFinalSpread() {
+    if (!twoPages || article.style.getPropertyValue("--reading-scroll-end"))
+      return;
+    const max = maxScroll(article);
+    const final = Math.ceil((max - 1) / step) * step;
+    if (final > max + 1) {
+      article.style.setProperty(
+        "--reading-scroll-end",
+        `${final + article.clientWidth - 1}px`,
+      );
+    }
+  }
+
   const go = (direction: Turn): boolean => {
     if (step <= 0) {
       measure();
     }
+    extendFinalSpread();
     const next =
       direction === "next"
         ? article.scrollLeft + step
@@ -199,9 +216,12 @@ export function attachPagesController(
     });
   };
 
-  const relayout = () => {
+  const relayout = (apply?: () => void) => {
     const place = firstVisibleCharacter(article);
+    apply?.();
+    article.style.removeProperty("--reading-scroll-end");
     measure();
+    extendFinalSpread();
     if (place) {
       scrollCharIntoSpread(article, step, place);
     } else {
@@ -290,8 +310,9 @@ export function attachPagesController(
       article.removeEventListener("scroll", onScroll);
       window.clearTimeout(snapTimer);
       article.style.removeProperty("--reading-page-width");
-      article.style.removeProperty("--reading-spread-width");
+      article.parentElement?.style.removeProperty("--reading-spread-width");
       article.style.removeProperty("--reading-column-gap");
+      article.style.removeProperty("--reading-scroll-end");
     },
     relayout,
     turn: go,
