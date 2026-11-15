@@ -41,6 +41,7 @@ type ReadingSetting struct {
 	LineHeight float64
 	Width      int64
 	Theme      string
+	Layout     string
 }
 
 type Session struct {

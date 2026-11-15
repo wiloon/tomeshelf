@@ -675,6 +675,7 @@ type Settings = {
   lineHeight: number;
   width: number;
   theme: string;
+  layout: string;
 };
 
 const defaults: Settings = {
@@ -682,6 +683,7 @@ const defaults: Settings = {
   lineHeight: 1.6,
   width: 38,
   theme: "light",
+  layout: "pages",
 };
 
 async function saved(api: APIRequestContext): Promise<Settings> {
@@ -757,9 +759,10 @@ test("a change survives a reload and opens on another device, while another user
   await panel.getByRole("button", { name: "Increase font size" }).click();
   await panel.getByRole("button", { name: "Increase font size" }).click();
   await panel.getByRole("radio", { name: "Dark" }).check();
+  await panel.getByRole("radio", { name: "Scroll" }).check();
   await expect
     .poll(() => saved(page.request))
-    .toEqual({ ...defaults, fontSize: 20, theme: "dark" });
+    .toEqual({ ...defaults, fontSize: 20, theme: "dark", layout: "scroll" });
 
   await page.reload();
   await expect(article(page)).toContainText(documents.common.text);
@@ -767,6 +770,10 @@ test("a change survives a reload and opens on another device, while another user
   await expect(page.locator("html")).toHaveAttribute(
     "data-reading-theme",
     "dark",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reading-layout",
+    "scroll",
   );
 
   const device = await browser.newContext({
@@ -779,6 +786,10 @@ test("a change survives a reload and opens on another device, while another user
   await expect(second.locator("html")).toHaveAttribute(
     "data-reading-theme",
     "dark",
+  );
+  await expect(second.locator("html")).toHaveAttribute(
+    "data-reading-layout",
+    "scroll",
   );
   await device.close();
 
@@ -809,6 +820,10 @@ test("a change survives a reload and opens on another device, while another user
   await expect(othersPage.locator("html")).toHaveAttribute(
     "data-reading-theme",
     "light",
+  );
+  await expect(othersPage.locator("html")).toHaveAttribute(
+    "data-reading-layout",
+    "pages",
   );
   await other.close();
 });

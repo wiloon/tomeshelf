@@ -141,7 +141,7 @@ func (q *Queries) GetReadingPosition(ctx context.Context, arg GetReadingPosition
 }
 
 const getReadingSettings = `-- name: GetReadingSettings :one
-SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme
+SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout
 FROM reading_settings JOIN users ON users.id = reading_settings.user_id
 WHERE users.username = ?
 `
@@ -151,6 +151,7 @@ type GetReadingSettingsRow struct {
 	LineHeight float64
 	Width      int64
 	Theme      string
+	Layout     string
 }
 
 func (q *Queries) GetReadingSettings(ctx context.Context, username string) (GetReadingSettingsRow, error) {
@@ -161,6 +162,7 @@ func (q *Queries) GetReadingSettings(ctx context.Context, username string) (GetR
 		&i.LineHeight,
 		&i.Width,
 		&i.Theme,
+		&i.Layout,
 	)
 	return i, err
 }
@@ -398,14 +400,15 @@ func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([
 }
 
 const putReadingSettings = `-- name: PutReadingSettings :execrows
-INSERT INTO reading_settings (user_id, font_size, line_height, width, theme)
-SELECT id, ?1, ?2, ?3, ?4
-FROM users WHERE username = ?5
+INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout)
+SELECT id, ?1, ?2, ?3, ?4, ?5
+FROM users WHERE username = ?6
 ON CONFLICT (user_id) DO UPDATE SET
     font_size = excluded.font_size,
     line_height = excluded.line_height,
     width = excluded.width,
-    theme = excluded.theme
+    theme = excluded.theme,
+    layout = excluded.layout
 `
 
 type PutReadingSettingsParams struct {
@@ -413,6 +416,7 @@ type PutReadingSettingsParams struct {
 	LineHeight float64
 	Width      int64
 	Theme      string
+	Layout     string
 	Username   string
 }
 
@@ -422,6 +426,7 @@ func (q *Queries) PutReadingSettings(ctx context.Context, arg PutReadingSettings
 		arg.LineHeight,
 		arg.Width,
 		arg.Theme,
+		arg.Layout,
 		arg.Username,
 	)
 	if err != nil {
