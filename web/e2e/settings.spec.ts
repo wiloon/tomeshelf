@@ -38,12 +38,28 @@ const documents = {
   short: { n: 7, text: "Short document paragraph 12." },
 };
 
+// Typography and scroll-anchor specs use the scroll layout; pages layout is
+// covered in pages.spec.ts.
+async function saveScrollLayout(page: Page) {
+  const res = await page.request.put("/api/settings", {
+    data: {
+      fontSize: 18,
+      lineHeight: 1.6,
+      width: 38,
+      theme: "light",
+      layout: "scroll",
+    },
+  });
+  expect(res.status()).toBe(204);
+}
+
 // Creates the admin, imports the semantics fixture and returns its book id.
 async function importSemantics(page: Page): Promise<string> {
   const setup = await page.request.post("/api/setup", {
     data: { username: "reader", password: "reader password" },
   });
   expect(setup.status()).toBe(201);
+  await saveScrollLayout(page);
   await page.goto("/");
   await page
     .getByLabel("Import an EPUB")
@@ -987,27 +1003,46 @@ test("saved settings that arrive after the document apply with the anchor rule",
   page,
 }) => {
   const id = await importSemantics(page);
-  await save(page.request, { fontSize: 24 });
-  await page.setViewportSize({ width: 1280, height: 720 });
+  // A full reload flashes the pages default until GET returns; pin the
+  // delayed answer to pages too and check the spread place is kept.
+  await save(page.request, { fontSize: 24, layout: "pages" });
+  await page.setViewportSize({ width: 900, height: 800 });
   const gets = await hold(page, "GET");
-  await openDocument(page, id, documents.long);
+  await page.goto(`/books/${id}/read/${documents.long.n}`);
+  await expect(article(page)).toContainText(documents.long.text);
   await expect.poll(() => gets.length).toBe(1);
   await expect(article(page)).toHaveCSS("font-size", "18px");
-  const block = "#long > p:nth-of-type(20)";
-  const fraction = await scrollInto(page, block, 0.4);
-  const before = await scrollY(page);
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reading-layout",
+    "pages",
+  );
+  await page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("button", { name: "Next" })
+    .click();
+  await expect
+    .poll(() => article(page).evaluate((el) => (el as HTMLElement).scrollLeft))
+    .toBeGreaterThan(0);
+  const before = await article(page).evaluate(
+    (el) => (el as HTMLElement).scrollLeft,
+  );
 
   await gets[0].continue();
   await expect(article(page)).toHaveCSS("font-size", "24px");
-  await expectAtTop(page, block, fraction);
-  expect(await scrollY(page)).not.toBe(before);
+  await expect
+    .poll(() => article(page).evaluate((el) => (el as HTMLElement).scrollLeft))
+    .toBeGreaterThan(0);
+  // Re-layout keeps the place on a later spread, not snapped back to the start.
+  expect(
+    await article(page).evaluate((el) => (el as HTMLElement).scrollLeft),
+  ).toBeGreaterThan(before / 2);
 });
 
 test("a change the user makes before the saved settings arrive wins over them", async ({
   page,
 }) => {
   const id = await importSemantics(page);
-  await save(page.request, { fontSize: 24 });
+  await save(page.request, { fontSize: 24, layout: "scroll" });
   const gets = await hold(page, "GET");
   await openDocument(page, id, documents.common);
   await expect.poll(() => gets.length).toBe(1);
@@ -1034,7 +1069,7 @@ test("saved settings that arrive before the document are there on its first rend
   page,
 }) => {
   const id = await importSemantics(page);
-  await save(page.request, { fontSize: 24 });
+  await save(page.request, { fontSize: 24, layout: "scroll" });
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.addInitScript(() => {
     new MutationObserver((_, observer) => {

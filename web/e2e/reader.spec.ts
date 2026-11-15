@@ -17,6 +17,22 @@ const test = base.extend<{ server: TestServer }>({
 const books = path.resolve(import.meta.dirname, "../../testdata/books");
 const title = "A Hand-Made Reading Book";
 
+// These specs cover document navigation and the scroll layout. Paginated
+// reading is pinned in pages.spec.ts; keep scroll here so Previous/Next stay
+// document links and the window still scrolls.
+async function saveScrollLayout(page: Page) {
+  const res = await page.request.put("/api/settings", {
+    data: {
+      fontSize: 18,
+      lineHeight: 1.6,
+      width: 38,
+      theme: "light",
+      layout: "scroll",
+    },
+  });
+  expect(res.status()).toBe(204);
+}
+
 // Creates the admin, imports a fixture, chooses it in the library and
 // returns its book id once its first document shows.
 async function openBook(
@@ -27,6 +43,7 @@ async function openBook(
     data: { username: "reader", password: "reader password" },
   });
   expect(setup.status()).toBe(201);
+  await saveScrollLayout(page);
   await page.goto("/");
   await page
     .getByLabel("Import an EPUB")
