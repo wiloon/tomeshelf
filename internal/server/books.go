@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,13 +17,25 @@ import (
 )
 
 type bookJSON struct {
-	ID      int64    `json:"id"`
-	Title   string   `json:"title"`
-	Authors []string `json:"authors"`
+	ID       int64    `json:"id"`
+	Title    string   `json:"title"`
+	Authors  []string `json:"authors"`
+	Progress *int     `json:"progress,omitempty"`
 }
 
 func toBookJSON(b store.Book) bookJSON {
-	return bookJSON{ID: b.ID, Title: b.Title, Authors: b.Authors}
+	out := bookJSON{ID: b.ID, Title: b.Title, Authors: b.Authors}
+	if b.TotalProgression != nil {
+		p := int(math.Floor(*b.TotalProgression * 100))
+		if p > 100 {
+			p = 100
+		}
+		if p < 0 {
+			p = 0
+		}
+		out.Progress = &p
+	}
+	return out
 }
 
 // listBooks answers the signed-in user's library.

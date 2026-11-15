@@ -52,6 +52,8 @@ func New(build fs.FS, logger *slog.Logger, accounts Accounts, settings Settings,
 	mux.HandleFunc("GET /api/books/{id}/thumbnail", s.thumbnail)
 	mux.HandleFunc("GET /api/books/{id}/manifest", s.manifest)
 	mux.HandleFunc("GET /api/books/{id}/package/{path...}", s.packageFile)
+	mux.HandleFunc("GET /api/books/{id}/position", s.getPosition)
+	mux.HandleFunc("PUT /api/books/{id}/position", s.putPosition)
 	mux.HandleFunc("/api/", s.apiNotFound)
 	mux.HandleFunc("GET /setup", s.setupPage)
 	mux.HandleFunc("GET /signin", s.signInPage)

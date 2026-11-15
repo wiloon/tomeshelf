@@ -43,6 +43,8 @@ type Store interface {
 	Book(ctx context.Context, username string, id int64) (store.Book, error)
 	DeleteBook(ctx context.Context, username string, id int64) (string, error)
 	BookFileNamed(ctx context.Context, sha256 string) (bool, error)
+	ReadingPosition(ctx context.Context, username string, bookID int64) (store.ReadingPosition, error)
+	SaveReadingPosition(ctx context.Context, username string, bookID int64, tabID string, sequence int64, p store.ReadingPosition) (store.SaveReadingPositionResult, error)
 }
 
 // Library is the books in a data directory. Its methods are safe for

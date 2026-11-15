@@ -1,6 +1,6 @@
 // Package store keeps tomeshelf's data in SQLite: the embedded schema
 // migrations, the users and sessions behind sign-in (ADR-0008, ADR-0009), and
-// each user's library and reading settings.
+// each user's library, reading settings and reading positions (ADR-0005).
 package store
 
 import (
@@ -197,12 +197,14 @@ func (s *Store) ResetPassword(ctx context.Context, username, passwordHash string
 }
 
 // Book is one book in a user's library. SHA256 is the hex digest of its
-// original EPUB, which names the file (ADR-0007).
+// original EPUB, which names the file (ADR-0007). TotalProgression is set when
+// the user has a stored reading position for the book.
 type Book struct {
-	ID      int64
-	SHA256  string
-	Title   string
-	Authors []string
+	ID               int64
+	SHA256           string
+	Title            string
+	Authors          []string
+	TotalProgression *float64
 }
 
 // AddBook adds the book to the user's library and returns it with its id. It
@@ -233,9 +235,10 @@ func (s *Store) AddBook(ctx context.Context, username string, b Book) (Book, err
 	return b, nil
 }
 
-// Books returns the user's library, ordered by title.
+// Books returns the user's library, ordered by title, with each book's
+// stored total progression when the user has one.
 func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
-	rows, err := s.q.ListBooks(ctx, username)
+	rows, err := s.q.ListBooksWithProgress(ctx, username)
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +247,10 @@ func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
 		b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title}
 		if err := json.Unmarshal([]byte(row.Authors), &b.Authors); err != nil {
 			return nil, fmt.Errorf("book %d authors: %w", row.ID, err)
+		}
+		if row.TotalProgression.Valid {
+			tp := row.TotalProgression.Float64
+			b.TotalProgression = &tp
 		}
 		books = append(books, b)
 	}
@@ -323,6 +330,137 @@ func (s *Store) SaveReadingSettings(ctx context.Context, username string, rs Rea
 		return ErrUnknownUser
 	}
 	return nil
+}
+
+// ReadingPosition is a user's stored reading position for one book, shaped as
+// the fields of a Readium Locator (ADR-0005). Optional fields are nil when
+// missing: no block, no quote, or progressions alone.
+type ReadingPosition struct {
+	Href             string
+	Progression      float64
+	TotalProgression float64
+	CSSSelector      *string
+	CharacterOffset  *int64
+	TextBefore       *string
+	TextHighlight    *string
+	TextAfter        *string
+}
+
+// ReadingPosition returns the user's stored position for the book, or
+// ErrUnknownBook when the user's library has no such book or no position.
+func (s *Store) ReadingPosition(ctx context.Context, username string, bookID int64) (ReadingPosition, error) {
+	row, err := s.q.GetReadingPosition(ctx, dbq.GetReadingPositionParams{Username: username, ID: bookID})
+	if errors.Is(err, sql.ErrNoRows) {
+		return ReadingPosition{}, ErrUnknownBook
+	}
+	if err != nil {
+		return ReadingPosition{}, err
+	}
+	return readingPositionFromRow(row), nil
+}
+
+func readingPositionFromRow(row dbq.GetReadingPositionRow) ReadingPosition {
+	p := ReadingPosition{
+		Href:             row.Href,
+		Progression:      row.Progression,
+		TotalProgression: row.TotalProgression,
+	}
+	if row.CssSelector.Valid {
+		p.CSSSelector = &row.CssSelector.String
+	}
+	if row.CharacterOffset.Valid {
+		p.CharacterOffset = &row.CharacterOffset.Int64
+	}
+	if row.TextBefore.Valid {
+		p.TextBefore = &row.TextBefore.String
+	}
+	if row.TextHighlight.Valid {
+		p.TextHighlight = &row.TextHighlight.String
+	}
+	if row.TextAfter.Valid {
+		p.TextAfter = &row.TextAfter.String
+	}
+	return p
+}
+
+// SaveReadingPositionResult is whether a save was stored or ignored as stale
+// for its tab.
+type SaveReadingPositionResult int
+
+const (
+	PositionSaved SaveReadingPositionResult = iota
+	PositionIgnored
+)
+
+// SaveReadingPosition stores the position when sequence is newer than the
+// tab's highest accepted sequence, and records that sequence. An equal or
+// older sequence is ignored and the stored position is left as it is.
+// ErrUnknownBook means the user's library has no such book.
+func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID int64, tabID string, sequence int64, p ReadingPosition) (SaveReadingPositionResult, error) {
+	var result SaveReadingPositionResult
+	err := s.inTx(ctx, func(q *dbq.Queries) error {
+		if _, err := q.GetBook(ctx, dbq.GetBookParams{Username: username, ID: bookID}); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrUnknownBook
+			}
+			return err
+		}
+		highest, err := q.GetTabHighestSequence(ctx, dbq.GetTabHighestSequenceParams{
+			Username: username,
+			ID:       bookID,
+			TabID:    tabID,
+		})
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil && sequence <= highest {
+			result = PositionIgnored
+			return nil
+		}
+		n, err := q.UpsertReadingPosition(ctx, dbq.UpsertReadingPositionParams{
+			Href:             p.Href,
+			Progression:      p.Progression,
+			TotalProgression: p.TotalProgression,
+			CssSelector:      nullString(p.CSSSelector),
+			CharacterOffset:  nullInt64(p.CharacterOffset),
+			TextBefore:       nullString(p.TextBefore),
+			TextHighlight:    nullString(p.TextHighlight),
+			TextAfter:        nullString(p.TextAfter),
+			Username:         username,
+			BookID:           bookID,
+		})
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrUnknownBook
+		}
+		if _, err := q.UpsertTabHighestSequence(ctx, dbq.UpsertTabHighestSequenceParams{
+			TabID:           tabID,
+			HighestSequence: sequence,
+			Username:        username,
+			BookID:          bookID,
+		}); err != nil {
+			return err
+		}
+		result = PositionSaved
+		return nil
+	})
+	return result, err
+}
+
+func nullString(s *string) sql.NullString {
+	if s == nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: *s, Valid: true}
+}
+
+func nullInt64(n *int64) sql.NullInt64 {
+	if n == nil {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *n, Valid: true}
 }
 
 func (s *Store) inTx(ctx context.Context, fn func(*dbq.Queries) error) error {

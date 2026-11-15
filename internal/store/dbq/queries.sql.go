@@ -7,6 +7,7 @@ package dbq
 
 import (
 	"context"
+	"database/sql"
 )
 
 const bookFileNamed = `-- name: BookFileNamed :one
@@ -97,6 +98,48 @@ func (q *Queries) GetBook(ctx context.Context, arg GetBookParams) (GetBookRow, e
 	return i, err
 }
 
+const getReadingPosition = `-- name: GetReadingPosition :one
+SELECT reading_positions.href, reading_positions.progression, reading_positions.total_progression,
+       reading_positions.css_selector, reading_positions.character_offset,
+       reading_positions.text_before, reading_positions.text_highlight, reading_positions.text_after
+FROM reading_positions
+JOIN books ON books.id = reading_positions.book_id
+JOIN users ON users.id = books.user_id
+WHERE users.username = ? AND books.id = ?
+`
+
+type GetReadingPositionParams struct {
+	Username string
+	ID       int64
+}
+
+type GetReadingPositionRow struct {
+	Href             string
+	Progression      float64
+	TotalProgression float64
+	CssSelector      sql.NullString
+	CharacterOffset  sql.NullInt64
+	TextBefore       sql.NullString
+	TextHighlight    sql.NullString
+	TextAfter        sql.NullString
+}
+
+func (q *Queries) GetReadingPosition(ctx context.Context, arg GetReadingPositionParams) (GetReadingPositionRow, error) {
+	row := q.db.QueryRowContext(ctx, getReadingPosition, arg.Username, arg.ID)
+	var i GetReadingPositionRow
+	err := row.Scan(
+		&i.Href,
+		&i.Progression,
+		&i.TotalProgression,
+		&i.CssSelector,
+		&i.CharacterOffset,
+		&i.TextBefore,
+		&i.TextHighlight,
+		&i.TextAfter,
+	)
+	return i, err
+}
+
 const getReadingSettings = `-- name: GetReadingSettings :one
 SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme
 FROM reading_settings JOIN users ON users.id = reading_settings.user_id
@@ -138,6 +181,27 @@ func (q *Queries) GetSessionUsername(ctx context.Context, arg GetSessionUsername
 	var username string
 	err := row.Scan(&username)
 	return username, err
+}
+
+const getTabHighestSequence = `-- name: GetTabHighestSequence :one
+SELECT reading_position_tabs.highest_sequence
+FROM reading_position_tabs
+JOIN books ON books.id = reading_position_tabs.book_id
+JOIN users ON users.id = books.user_id
+WHERE users.username = ? AND books.id = ? AND reading_position_tabs.tab_id = ?
+`
+
+type GetTabHighestSequenceParams struct {
+	Username string
+	ID       int64
+	TabID    string
+}
+
+func (q *Queries) GetTabHighestSequence(ctx context.Context, arg GetTabHighestSequenceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, getTabHighestSequence, arg.Username, arg.ID, arg.TabID)
+	var highest_sequence int64
+	err := row.Scan(&highest_sequence)
+	return highest_sequence, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
@@ -287,6 +351,52 @@ func (q *Queries) ListBooks(ctx context.Context, username string) ([]ListBooksRo
 	return items, nil
 }
 
+const listBooksWithProgress = `-- name: ListBooksWithProgress :many
+SELECT books.id, books.sha256, books.title, books.authors, reading_positions.total_progression
+FROM books
+JOIN users ON users.id = books.user_id
+LEFT JOIN reading_positions ON reading_positions.book_id = books.id
+WHERE users.username = ?
+ORDER BY books.title COLLATE NOCASE, books.id
+`
+
+type ListBooksWithProgressRow struct {
+	ID               int64
+	Sha256           string
+	Title            string
+	Authors          string
+	TotalProgression sql.NullFloat64
+}
+
+func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([]ListBooksWithProgressRow, error) {
+	rows, err := q.db.QueryContext(ctx, listBooksWithProgress, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListBooksWithProgressRow
+	for rows.Next() {
+		var i ListBooksWithProgressRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Sha256,
+			&i.Title,
+			&i.Authors,
+			&i.TotalProgression,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const putReadingSettings = `-- name: PutReadingSettings :execrows
 INSERT INTO reading_settings (user_id, font_size, line_height, width, theme)
 SELECT id, ?1, ?2, ?3, ?4
@@ -335,4 +445,86 @@ func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHash
 	var id int64
 	err := row.Scan(&id)
 	return id, err
+}
+
+const upsertReadingPosition = `-- name: UpsertReadingPosition :execrows
+INSERT INTO reading_positions (
+    book_id, href, progression, total_progression,
+    css_selector, character_offset, text_before, text_highlight, text_after
+)
+SELECT books.id, ?1, ?2, ?3,
+       ?4, ?5,
+       ?6, ?7, ?8
+FROM books JOIN users ON users.id = books.user_id
+WHERE users.username = ?9 AND books.id = ?10
+ON CONFLICT (book_id) DO UPDATE SET
+    href = excluded.href,
+    progression = excluded.progression,
+    total_progression = excluded.total_progression,
+    css_selector = excluded.css_selector,
+    character_offset = excluded.character_offset,
+    text_before = excluded.text_before,
+    text_highlight = excluded.text_highlight,
+    text_after = excluded.text_after
+`
+
+type UpsertReadingPositionParams struct {
+	Href             string
+	Progression      float64
+	TotalProgression float64
+	CssSelector      sql.NullString
+	CharacterOffset  sql.NullInt64
+	TextBefore       sql.NullString
+	TextHighlight    sql.NullString
+	TextAfter        sql.NullString
+	Username         string
+	BookID           int64
+}
+
+func (q *Queries) UpsertReadingPosition(ctx context.Context, arg UpsertReadingPositionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, upsertReadingPosition,
+		arg.Href,
+		arg.Progression,
+		arg.TotalProgression,
+		arg.CssSelector,
+		arg.CharacterOffset,
+		arg.TextBefore,
+		arg.TextHighlight,
+		arg.TextAfter,
+		arg.Username,
+		arg.BookID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const upsertTabHighestSequence = `-- name: UpsertTabHighestSequence :execrows
+INSERT INTO reading_position_tabs (book_id, tab_id, highest_sequence)
+SELECT books.id, ?1, ?2
+FROM books JOIN users ON users.id = books.user_id
+WHERE users.username = ?3 AND books.id = ?4
+ON CONFLICT (book_id, tab_id) DO UPDATE SET
+    highest_sequence = excluded.highest_sequence
+`
+
+type UpsertTabHighestSequenceParams struct {
+	TabID           string
+	HighestSequence int64
+	Username        string
+	BookID          int64
+}
+
+func (q *Queries) UpsertTabHighestSequence(ctx context.Context, arg UpsertTabHighestSequenceParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, upsertTabHighestSequence,
+		arg.TabID,
+		arg.HighestSequence,
+		arg.Username,
+		arg.BookID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
