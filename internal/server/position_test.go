@@ -1,11 +1,15 @@
 package server_test
 
 import (
+	"archive/zip"
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -55,6 +59,63 @@ func saveBody(tab string, seq int64, href string, progression float64, extra str
 		tab, seq, href, progression, extra,
 	)
 	return base + `}`
+}
+
+func TestPositionAcceptsPercentEncodedDocumentHref(t *testing.T) {
+	e := newEnv(t, buildFS())
+	c := e.setup(t)
+	original := coverEPUB(t, "Encoded", nil)
+	zr, err := zip.NewReader(bytes.NewReader(original), int64(len(original)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, f := range zr.File {
+		r, err := f.Open()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Close()
+		name := f.Name
+		if name == "OEBPS/text.xhtml" {
+			name = "OEBPS/my document.xhtml"
+		}
+		if name == "OEBPS/content.opf" || name == "OEBPS/nav.xhtml" {
+			data = bytes.ReplaceAll(data, []byte("text.xhtml"), []byte("my%20document.xhtml"))
+		}
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = w.Write(data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	id := e.importedID(t, c, buf.Bytes())
+	href := readingOrderHref(t, e, id, c, 0)
+	if !strings.Contains(href, "my%20document.xhtml") {
+		t.Fatalf("href = %q", href)
+	}
+	requireStatus(t, e.putPosition(t, id, c, saveBody("tab-a", 1, href, 0.5, "")), http.StatusNoContent)
+	res := e.getPosition(t, id, c)
+	requireStatus(t, res, http.StatusOK)
+	var got struct {
+		Href string `json:"href"`
+	}
+	if err := json.Unmarshal([]byte(body(t, res)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Href != href {
+		t.Errorf("href = %q, want %q", got.Href, href)
+	}
 }
 
 func TestPositionNeedsASession(t *testing.T) {
@@ -149,7 +210,7 @@ func TestTotalProgressionIsComputedFromDocumentSizes(t *testing.T) {
 	href0 := readingOrderHref(t, e, id, c, 0)
 	href1 := readingOrderHref(t, e, id, c, 1)
 
-	requireStatus(t, e.putPosition(t, id, c, saveBody("tab-a", 1, href0, 0.5, "")), http.StatusNoContent)
+	requireStatus(t, e.putPosition(t, id, c, saveBody("tab-a", 1, href0, 0.5, `,"totalProgression":0.99`)), http.StatusNoContent)
 	res := e.getPosition(t, id, c)
 	requireStatus(t, res, http.StatusOK)
 	var first struct {
@@ -172,12 +233,14 @@ func TestTotalProgressionIsComputedFromDocumentSizes(t *testing.T) {
 	if err := json.Unmarshal([]byte(body(t, res)), &second); err != nil {
 		t.Fatal(err)
 	}
-	if !(first.Locations.TotalProgression < second.Locations.TotalProgression) {
-		t.Errorf("total at mid doc0 = %v, at start doc1 = %v; want the second larger",
-			first.Locations.TotalProgression, second.Locations.TotalProgression)
-	}
-	if second.Locations.TotalProgression <= 0 || second.Locations.TotalProgression >= 1 {
-		t.Errorf("total at start of last doc = %v, want in (0,1)", second.Locations.TotalProgression)
+	// The fixture's reading-order documents are 10022 and 234 bytes.
+	for _, tc := range []struct{ got, want float64 }{
+		{first.Locations.TotalProgression, 5011.0 / 10256},
+		{second.Locations.TotalProgression, 10022.0 / 10256},
+	} {
+		if math.Abs(tc.got-tc.want) > 1e-9 {
+			t.Errorf("totalProgression = %v, want %v", tc.got, tc.want)
+		}
 	}
 }
 

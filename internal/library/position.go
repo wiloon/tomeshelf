@@ -40,6 +40,10 @@ func (l *Library) TotalProgression(ctx context.Context, username string, id int6
 	}
 	defer publication.Close()
 
+	submitted, err := url.RelativeURLFromString(href)
+	if err != nil {
+		return 0, ErrBadHref
+	}
 	index := -1
 	hrefs := make([]string, 0, len(publication.Manifest.ReadingOrder))
 	for i, link := range publication.Manifest.ReadingOrder {
@@ -49,7 +53,7 @@ func (l *Library) TotalProgression(ctx context.Context, username string, id int6
 		}
 		p := h.Path()
 		hrefs = append(hrefs, p)
-		if pathsEqual(p, href) {
+		if pathsEqual(p, submitted.Path()) {
 			index = i
 		}
 	}
