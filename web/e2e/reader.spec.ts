@@ -137,6 +137,7 @@ test("a book with a translated title opens in the reader", async ({ page }) => {
     .setInputFiles(path.join(books, "translated-title.epub"));
   await expect(page.getByRole("status")).toContainText("Imported");
   await page.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
+  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
   const manifest = await page.request.get(
     new URL(page.url()).pathname
       .replace(/read\/1$/, "manifest")

@@ -185,6 +185,7 @@ export function markReadingPage(bookId: string): () => void {
   const tags = [
     ["generator", `tomeshelf ${__TOMESHELF_VERSION__}`],
     ["tomeshelf:book", bookId],
+    ["tomeshelf:restores-position", "true"],
   ].map(([name, content]) => {
     const meta = document.createElement("meta");
     meta.name = name;

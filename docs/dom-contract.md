@@ -10,6 +10,7 @@ A reading page shows one document of a book: one XHTML file in the book's readin
 
 - **`<meta name="generator" content="tomeshelf <version>">`** in the `head`. It marks the page as a tomeshelf reading page. The version is free text without spaces (a release tag, a commit, or `dev`), so match the `tomeshelf ` prefix rather than a version.
 - **`<meta name="tomeshelf:book" content="<book id>">`** in the `head`. The book id is an opaque string, the same on every document of a book and different for every other book in the same instance. Use it to treat the documents of a book as one book.
+- **`<meta name="tomeshelf:restores-position" content="true">`** in the `head`. It declares that tomeshelf itself reopens a book at its reading position (ADR-0005), so an extension that also tracks reading positions should not offer its own "continue reading" jump on these pages.
 - **One `<article id="tomeshelf-content">`** that holds the document's text. It is in the page's main DOM: no iframe and no shadow root holds the text (ADR-0001).
 - **`data-tomeshelf-block="<n>"`** on each block. Blocks are the `p`, `h1` to `h6` and `li` elements inside the article. They are numbered per document, from 1, in document order (pre-order, so an `li` comes before a `p` nested in it).
 
@@ -20,16 +21,10 @@ Only tomeshelf writes this markup. A book's own `data-tomeshelf-*` attributes, `
 tomeshelf is a single-page app. When the reader moves to another document, the page does not reload:
 
 - The article's content is replaced by the new document, and its blocks are numbered again from 1. Look the article up by its id after a move rather than keeping a reference to it.
-- The meta tags stay correct: `tomeshelf:book` keeps the book's id within a book and changes when another book is opened.
+- The meta tags stay correct: `tomeshelf:book` keeps the book's id within a book and changes when another book is opened; `tomeshelf:restores-position` stays present on every reading page.
 - Pages that are not reading pages, such as the library, carry none of these meta tags.
 
 Watch the page (for example with a `MutationObserver`) to notice a move.
-
-## Reserved: `tomeshelf:restores-position`
-
-`<meta name="tomeshelf:restores-position" content="true">` is reserved. It will declare that tomeshelf itself reopens a book at its reading position, so an extension that also tracks reading positions should not offer its own "continue reading" jump on these pages.
-
-The tag is a promise, so it is added only when tomeshelf saves and restores reading positions (ADR-0005). Until then, reading pages carry no such tag.
 
 ## Stability
 

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import {
   type MouseEvent as ReactMouseEvent,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -24,6 +25,8 @@ import {
   renderDocument,
   tocEntryURL,
 } from "./navigator";
+import { takePendingRestore } from "./pending-restore";
+import type { Locator } from "./position";
 import {
   applyToPage,
   changesLayout,
@@ -32,6 +35,7 @@ import {
   SettingsPanel,
   useReadingSettings,
 } from "./settings";
+import { useReadingPosition } from "./use-reading-position";
 
 const route = getRouteApi("/books/$id/read/$n");
 
@@ -70,29 +74,51 @@ function decodeFragment(hash: string): string {
 }
 
 // The document's text, rendered into the page's own DOM (ADR-0001). It
-// starts at its top, or at the URL's fragment.
-function BookDocument({ html, place }: { html: string; place: DocumentPlace }) {
+// starts at its top, at the URL's fragment, or at a restored Locator.
+function BookDocument({
+  html,
+  place,
+  restore,
+  applyRestore,
+  withoutCapture,
+}: {
+  html: string;
+  place: DocumentPlace;
+  restore: Locator | null;
+  applyRestore: (content: HTMLElement, locator: Locator) => void;
+  withoutCapture: (fn: () => void) => void;
+}) {
   const ref = useRef<HTMLElement>(null);
   const navigate = useNavigate();
   const hash = useLocation({ select: (location) => location.hash });
   const { bookId, readingOrder, n } = place;
+  const restoreRef = useRef(restore);
+  restoreRef.current = restore;
 
   useLayoutEffect(() => markReadingPage(bookId), [bookId]);
 
   useLayoutEffect(() => {
-    if (!ref.current) {
+    const el = ref.current;
+    if (!el) {
       return;
     }
-    renderDocument(ref.current, html, { bookId, readingOrder, n });
-    const target = hash
-      ? document.getElementById(decodeFragment(hash))
-      : undefined;
-    if (target) {
-      target.scrollIntoView();
-    } else {
-      window.scrollTo(0, 0);
+    renderDocument(el, html, { bookId, readingOrder, n });
+    const pending = restoreRef.current;
+    if (pending) {
+      applyRestore(el, pending);
+      return;
     }
-  }, [html, bookId, readingOrder, n, hash]);
+    withoutCapture(() => {
+      const target = hash
+        ? document.getElementById(decodeFragment(hash))
+        : undefined;
+      if (target) {
+        target.scrollIntoView();
+      } else {
+        window.scrollTo(0, 0);
+      }
+    });
+  }, [html, bookId, readingOrder, n, hash, applyRestore, withoutCapture]);
 
   // Links to other documents move within the app instead of reloading it.
   useEffect(() => {
@@ -220,8 +246,13 @@ function TableOfContents({
 
 // Applies the reading settings while the reader is open. A change that
 // reflows the text keeps the element at the top of the viewport in place; a
-// theme change does not scroll.
-function useSettingsOnPage(settings: ReadingSettings) {
+// theme change does not scroll. Scroll during that keep is not captured as a
+// reader move; the active Locator is refreshed afterwards for resize restore.
+function useSettingsOnPage(
+  settings: ReadingSettings,
+  withoutCapture: (fn: () => void) => void,
+  syncLocator: () => void,
+) {
   const applied = useRef<ReadingSettings | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -229,14 +260,17 @@ function useSettingsOnPage(settings: ReadingSettings) {
     const previous = applied.current;
     applied.current = settings;
     if (previous && changesLayout(previous, settings)) {
-      keepingAnchor(document.getElementById(contentId), () =>
-        applyToPage(settings),
-      );
+      withoutCapture(() => {
+        keepingAnchor(document.getElementById(contentId), () =>
+          applyToPage(settings),
+        );
+      });
+      syncLocator();
     } else {
       applyToPage(settings);
     }
     setReady(true);
-  }, [settings]);
+  }, [settings, withoutCapture, syncLocator]);
 
   useLayoutEffect(
     () => () => {
@@ -251,6 +285,11 @@ function useSettingsOnPage(settings: ReadingSettings) {
 export function ReaderPage() {
   const { id, n: param } = route.useParams();
   const n = /^[1-9]\d*$/.test(param) ? Number(param) : 0;
+  const [pending] = useState(() => takePendingRestore(id));
+  const [restore, setRestore] = useState<Locator | null>(
+    () => pending?.locator ?? null,
+  );
+  const [positionError] = useState(() => pending?.error ?? false);
   const manifest = useQuery({
     queryKey: ["manifest", id],
     queryFn: () => fetchManifest(id),
@@ -271,7 +310,24 @@ export function ReaderPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const { settings, load } = useReadingSettings();
-  const settingsReady = useSettingsOnPage(settings);
+  const { applyRestore, withoutCapture, syncLocator } = useReadingPosition({
+    bookId: id,
+    href: href ?? "",
+    enabled: href !== undefined && doc.data !== undefined,
+    restore,
+  });
+  const applyRestoreOnce = useCallback(
+    (content: HTMLElement, locator: Locator) => {
+      applyRestore(content, locator);
+      setRestore(null);
+    },
+    [applyRestore],
+  );
+  const settingsReady = useSettingsOnPage(
+    settings,
+    withoutCapture,
+    syncLocator,
+  );
   useEffect(() => load(), [load]);
   const closeSettings = () => {
     setSettingsOpen(false);
@@ -330,6 +386,11 @@ export function ReaderPage() {
             : Object.values(manifest.data.metadata.title)[0]}
         </h2>
       </div>
+      {positionError && (
+        <p role="alert" className="text-red-700">
+          The reading position could not be loaded.
+        </p>
+      )}
       {doc.isError && (
         <Problem text="This document could not be loaded. Please try again." />
       )}
@@ -338,6 +399,9 @@ export function ReaderPage() {
         <BookDocument
           html={doc.data}
           place={{ bookId: id, readingOrder: manifest.data.readingOrder, n }}
+          restore={restore && restore.href === href ? restore : null}
+          applyRestore={applyRestoreOnce}
+          withoutCapture={withoutCapture}
         />
       )}
       <nav

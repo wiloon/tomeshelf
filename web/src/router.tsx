@@ -7,6 +7,7 @@ import {
 import { SetupPage, SignInPage } from "./auth";
 import { LibraryPage } from "./library";
 import { ReaderPage } from "./reader";
+import { ResumePage } from "./resume";
 import { Shell } from "./shell";
 
 const rootRoute = createRootRoute({ component: Shell });
@@ -29,6 +30,13 @@ const signInRoute = createRoute({
   component: SignInPage,
 });
 
+// Resume address: opens the stored document, or the first at its top (ADR-0005).
+const resumeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/books/$id/read",
+  component: ResumePage,
+});
+
 // One URL per document in the reading order, n counting from 1 (ADR-0005).
 const readRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -40,6 +48,7 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   setupRoute,
   signInRoute,
+  resumeRoute,
   readRoute,
 ]);
 
