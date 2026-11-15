@@ -232,3 +232,47 @@ test("restore falls back when the quote then the block are missing", async ({
     .poll(async () => page.evaluate(() => window.scrollY))
     .toBeGreaterThan(50);
 });
+
+test("leaving after a completed position save does not resend it", async ({
+  page,
+}) => {
+  await setUp(page);
+  await importChapters(page);
+  await openFromLibrary(page);
+  const puts = positionPuts(page);
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      /\/position$/.test(response.url()),
+  );
+  await page.evaluate(() => window.scrollTo(0, 600));
+  await saved;
+  await expect.poll(() => puts.length).toBe(1);
+  await page.getByRole("link", { name: "Library", exact: true }).click();
+  await page.waitForTimeout(700);
+  expect(puts).toHaveLength(1);
+});
+
+test("restoring a position does not save a new position", async ({ page }) => {
+  await setUp(page);
+  await importChapters(page);
+  const id = await openFromLibrary(page);
+  const saved = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      /\/position$/.test(response.url()),
+  );
+  await page.evaluate(() =>
+    window.scrollTo(0, document.documentElement.scrollHeight),
+  );
+  await saved;
+  await page.goto("/");
+  const puts = positionPuts(page);
+  await page.getByRole("link", { name: new RegExp(chapters) }).click();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThan(100);
+  await page.waitForTimeout(1000);
+  expect(puts).toHaveLength(0);
+});

@@ -29,6 +29,7 @@ export function useReadingPosition({
   restore: Locator | null;
 }) {
   const restoring = useRef(false);
+  const restoredScrollY = useRef<number | null>(null);
   const moved = useRef(false);
   const activeLocator = useRef<Locator | null>(null);
   const hrefRef = useRef(href);
@@ -48,6 +49,7 @@ export function useReadingPosition({
     if (resolved) {
       applyResolvedPosition(content, resolved);
     }
+    restoredScrollY.current = window.scrollY;
     restoring.current = false;
     return true;
   }, []);
@@ -62,6 +64,7 @@ export function useReadingPosition({
     if (resolved) {
       applyResolvedPosition(content, resolved);
     }
+    restoredScrollY.current = window.scrollY;
     restoring.current = false;
   }, []);
 
@@ -70,6 +73,7 @@ export function useReadingPosition({
   const withoutCapture = useCallback((fn: () => void) => {
     restoring.current = true;
     fn();
+    restoredScrollY.current = window.scrollY;
     restoring.current = false;
   }, []);
 
@@ -96,10 +100,7 @@ export function useReadingPosition({
     });
     queueRef.current = queue;
     return () => {
-      if (moved.current && activeLocator.current) {
-        queue.change(activeLocator.current);
-        queue.pagehide();
-      }
+      queue.pagehide();
       queue.dispose();
       queueRef.current = null;
     };
@@ -139,9 +140,11 @@ export function useReadingPosition({
     }
 
     const onScroll = () => {
-      if (restoring.current) {
+      if (restoring.current || restoredScrollY.current === window.scrollY) {
+        restoredScrollY.current = null;
         return;
       }
+      restoredScrollY.current = null;
       const content = contentEl();
       if (!content) {
         return;
