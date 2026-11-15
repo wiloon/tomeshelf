@@ -71,6 +71,16 @@ async function hold(page: Page, url: string | RegExp) {
 
 test("shoots the reader at 390 and 1280 px", async ({ shots, shotsDir }) => {
   const { page } = shots;
+  const settings = await page.request.put("/api/settings", {
+    data: {
+      fontSize: 18,
+      lineHeight: 1.6,
+      width: 38,
+      theme: "light",
+      layout: "scroll",
+    },
+  });
+  expect(settings.status()).toBe(204);
   await importBooks(page, "reader.epub");
   await page.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
   await expect(page.locator("article#tomeshelf-content")).toContainText(

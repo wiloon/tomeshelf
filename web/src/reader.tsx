@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import {
   type MouseEvent as ReactMouseEvent,
+  type RefObject,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -24,10 +25,18 @@ import {
   renderDocument,
   tocEntryURL,
 } from "./navigator";
+import type { Turn } from "./pages";
+import {
+  attachPagesController,
+  type PagesController,
+  setPagesArrive,
+  takePagesArrive,
+} from "./pages-controller";
 import {
   applyToPage,
   changesLayout,
   clearFromPage,
+  type Layout,
   type ReadingSettings,
   SettingsPanel,
   useReadingSettings,
@@ -69,30 +78,105 @@ function decodeFragment(hash: string): string {
   }
 }
 
+function availableArticleWidth(article: HTMLElement): number {
+  const host = article.parentElement;
+  return host?.clientWidth ?? window.innerWidth;
+}
+
 // The document's text, rendered into the page's own DOM (ADR-0001). It
-// starts at its top, or at the URL's fragment.
-function BookDocument({ html, place }: { html: string; place: DocumentPlace }) {
+// starts at its top, or at the URL's fragment; in the pages layout it may
+// open on the last spread when arriving from the next document.
+function BookDocument({
+  html,
+  place,
+  layout,
+  pagesRef,
+  onEdges,
+  onExhausted,
+}: {
+  html: string;
+  place: DocumentPlace;
+  layout: Layout;
+  pagesRef: RefObject<PagesController | null>;
+  onEdges: (edges: { start: boolean; end: boolean }) => void;
+  onExhausted: (direction: Turn) => void;
+}) {
   const ref = useRef<HTMLElement>(null);
   const navigate = useNavigate();
   const hash = useLocation({ select: (location) => location.hash });
   const { bookId, readingOrder, n } = place;
+  const { settings } = useReadingSettings();
+  const textWidthRem = useRef(settings.width);
+  textWidthRem.current = settings.width;
+  const onExhaustedRef = useRef(onExhausted);
+  onExhaustedRef.current = onExhausted;
+  const onEdgesRef = useRef(onEdges);
+  onEdgesRef.current = onEdges;
 
   useLayoutEffect(() => markReadingPage(bookId), [bookId]);
 
   useLayoutEffect(() => {
-    if (!ref.current) {
+    const article = ref.current;
+    if (!article) {
       return;
     }
-    renderDocument(ref.current, html, { bookId, readingOrder, n });
+    renderDocument(article, html, { bookId, readingOrder, n });
+
+    if (layout !== "pages") {
+      const target = hash
+        ? document.getElementById(decodeFragment(hash))
+        : undefined;
+      if (target) {
+        target.scrollIntoView();
+      } else {
+        window.scrollTo(0, 0);
+      }
+      return;
+    }
+
+    const controller = attachPagesController({
+      article,
+      availableWidth: () => availableArticleWidth(article),
+      textWidthRem: () => textWidthRem.current,
+      onExhausted: (direction) => onExhaustedRef.current(direction),
+    });
+    pagesRef.current = controller;
+
+    const arrive = takePagesArrive();
     const target = hash
       ? document.getElementById(decodeFragment(hash))
       : undefined;
     if (target) {
       target.scrollIntoView();
+    } else if (arrive === "end") {
+      article.scrollLeft = article.scrollWidth;
+      controller.relayout();
     } else {
-      window.scrollTo(0, 0);
+      article.scrollLeft = 0;
     }
-  }, [html, bookId, readingOrder, n, hash]);
+    onEdgesRef.current({
+      start: controller.atStart(),
+      end: controller.atEnd(),
+    });
+
+    const onScroll = () =>
+      onEdgesRef.current({
+        start: controller.atStart(),
+        end: controller.atEnd(),
+      });
+    article.addEventListener("scroll", onScroll, { passive: true });
+    const onResize = () => controller.relayout();
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      article.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+      controller.destroy();
+      if (pagesRef.current === controller) {
+        pagesRef.current = null;
+      }
+    };
+  }, [html, bookId, readingOrder, n, hash, layout, pagesRef]);
 
   // Links to other documents move within the app instead of reloading it.
   useEffect(() => {
@@ -219,16 +303,24 @@ function TableOfContents({
 }
 
 // Applies the reading settings while the reader is open. A change that
-// reflows the text keeps the element at the top of the viewport in place; a
-// theme change does not scroll.
-function useSettingsOnPage(settings: ReadingSettings) {
+// reflows the text keeps the place; a theme change does not scroll.
+function useSettingsOnPage(
+  settings: ReadingSettings,
+  pagesRef: RefObject<PagesController | null>,
+) {
   const applied = useRef<ReadingSettings | null>(null);
   const [ready, setReady] = useState(false);
 
   useLayoutEffect(() => {
     const previous = applied.current;
     applied.current = settings;
-    if (previous && changesLayout(previous, settings)) {
+    if (settings.layout === "pages") {
+      if (pagesRef.current && previous && changesLayout(previous, settings)) {
+        pagesRef.current.relayout(() => applyToPage(settings));
+      } else {
+        applyToPage(settings);
+      }
+    } else if (previous && changesLayout(previous, settings)) {
       keepingAnchor(document.getElementById(contentId), () =>
         applyToPage(settings),
       );
@@ -236,7 +328,7 @@ function useSettingsOnPage(settings: ReadingSettings) {
       applyToPage(settings);
     }
     setReady(true);
-  }, [settings]);
+  }, [settings, pagesRef]);
 
   useLayoutEffect(
     () => () => {
@@ -248,9 +340,92 @@ function useSettingsOnPage(settings: ReadingSettings) {
   return ready;
 }
 
+function ScrollOrderNav({
+  id,
+  n,
+  length,
+}: {
+  id: string;
+  n: number;
+  length: number;
+}) {
+  return (
+    <nav
+      aria-label="Reading order"
+      className="reading-column flex justify-between gap-4"
+    >
+      {n > 1 ? (
+        <Link
+          to="/books/$id/read/$n"
+          params={{ id, n: String(n - 1) }}
+          className="underline"
+        >
+          Previous
+        </Link>
+      ) : (
+        <span />
+      )}
+      {n < length && (
+        <Link
+          to="/books/$id/read/$n"
+          params={{ id, n: String(n + 1) }}
+          className="underline"
+        >
+          Next
+        </Link>
+      )}
+    </nav>
+  );
+}
+
+function PagesOrderNav({
+  n,
+  length,
+  edges,
+  onTurn,
+}: {
+  n: number;
+  length: number;
+  edges: { start: boolean; end: boolean };
+  onTurn: (direction: Turn) => void;
+}) {
+  const showPrevious = !(edges.start && n <= 1);
+  const showNext = !(edges.end && n >= length);
+  return (
+    <nav
+      aria-label="Reading order"
+      className="reading-column flex justify-between gap-4"
+    >
+      {showPrevious ? (
+        <button
+          type="button"
+          onClick={() => onTurn("previous")}
+          className="underline"
+        >
+          Previous
+        </button>
+      ) : (
+        <span />
+      )}
+      {showNext ? (
+        <button
+          type="button"
+          onClick={() => onTurn("next")}
+          className="underline"
+        >
+          Next
+        </button>
+      ) : (
+        <span />
+      )}
+    </nav>
+  );
+}
+
 export function ReaderPage() {
   const { id, n: param } = route.useParams();
   const n = /^[1-9]\d*$/.test(param) ? Number(param) : 0;
+  const navigate = useNavigate();
   const manifest = useQuery({
     queryKey: ["manifest", id],
     queryFn: () => fetchManifest(id),
@@ -270,12 +445,34 @@ export function ReaderPage() {
   const [contentsOpen, setContentsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsButton = useRef<HTMLButtonElement>(null);
+  const pagesRef = useRef<PagesController | null>(null);
+  const [edges, setEdges] = useState({ start: true, end: false });
   const { settings, load } = useReadingSettings();
-  const settingsReady = useSettingsOnPage(settings);
+  const settingsReady = useSettingsOnPage(settings, pagesRef);
   useEffect(() => load(), [load]);
   const closeSettings = () => {
     setSettingsOpen(false);
     settingsButton.current?.focus({ preventScroll: true });
+  };
+
+  const onExhausted = (direction: Turn) => {
+    if (direction === "next" && n < readingOrder.length) {
+      setPagesArrive("start");
+      void navigate({
+        to: "/books/$id/read/$n",
+        params: { id, n: String(n + 1) },
+      });
+    } else if (direction === "previous" && n > 1) {
+      setPagesArrive("end");
+      void navigate({
+        to: "/books/$id/read/$n",
+        params: { id, n: String(n - 1) },
+      });
+    }
+  };
+
+  const turn = (direction: Turn) => {
+    pagesRef.current?.turn(direction);
   };
 
   const notFound = (
@@ -294,9 +491,11 @@ export function ReaderPage() {
     return notFound;
   }
 
+  const pages = settings.layout === "pages";
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
+    <div className={pages ? "reading-pages" : "flex flex-col gap-6"}>
+      <div className={`flex flex-col gap-1 ${pages ? "reading-chrome" : ""}`}>
         <div className="flex justify-between gap-4 text-sm">
           <Link to="/" className="underline">
             Library
@@ -338,33 +537,22 @@ export function ReaderPage() {
         <BookDocument
           html={doc.data}
           place={{ bookId: id, readingOrder: manifest.data.readingOrder, n }}
+          layout={settings.layout}
+          pagesRef={pagesRef}
+          onEdges={setEdges}
+          onExhausted={onExhausted}
         />
       )}
-      <nav
-        aria-label="Reading order"
-        className="reading-column flex justify-between gap-4"
-      >
-        {n > 1 ? (
-          <Link
-            to="/books/$id/read/$n"
-            params={{ id, n: String(n - 1) }}
-            className="underline"
-          >
-            Previous
-          </Link>
-        ) : (
-          <span />
-        )}
-        {n < readingOrder.length && (
-          <Link
-            to="/books/$id/read/$n"
-            params={{ id, n: String(n + 1) }}
-            className="underline"
-          >
-            Next
-          </Link>
-        )}
-      </nav>
+      {pages ? (
+        <PagesOrderNav
+          n={n}
+          length={readingOrder.length}
+          edges={edges}
+          onTurn={turn}
+        />
+      ) : (
+        <ScrollOrderNav id={id} n={n} length={readingOrder.length} />
+      )}
       <TableOfContents
         open={contentsOpen}
         onClose={() => setContentsOpen(false)}

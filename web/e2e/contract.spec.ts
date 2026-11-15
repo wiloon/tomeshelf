@@ -24,6 +24,8 @@ async function setUp(page: Page) {
     data: { username: "reader", password: "reader password" },
   });
   expect(setup.status()).toBe(201);
+  // Contract tests walk documents with the scroll layout's document links.
+  await saveScrollLayout(page);
   await page.goto("/");
 }
 
@@ -69,6 +71,19 @@ const inMainDom = {
   iframes: 0,
   shadowRoots: 0,
 };
+
+async function saveScrollLayout(page: Page) {
+  const res = await page.request.put("/api/settings", {
+    data: {
+      fontSize: 18,
+      lineHeight: 1.6,
+      width: 38,
+      theme: "light",
+      layout: "scroll",
+    },
+  });
+  expect(res.status()).toBe(204);
+}
 
 function nextDocument(page: Page) {
   return page

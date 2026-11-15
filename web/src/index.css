@@ -216,3 +216,94 @@
   margin-block: 3em;
   text-align: center;
 }
+
+/* Paginated reading (ADR-0010): the article is a horizontal multicol scroll
+   container; the window itself does not scroll. */
+:root[data-reading-layout="pages"],
+:root[data-reading-layout="pages"] body,
+:root[data-reading-layout="pages"] #root {
+  height: 100%;
+  overflow: hidden;
+}
+
+:root[data-reading-layout="pages"] .reading-shell {
+  display: flex;
+  height: 100dvh;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+:root[data-reading-layout="pages"] .reading-shell > main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding-block: 1rem;
+}
+
+:root[data-reading-layout="pages"] .reading-pages {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+:root[data-reading-layout="pages"] .reading-pages > .reading-chrome {
+  flex-shrink: 0;
+}
+
+:root[data-reading-layout="pages"] #tomeshelf-content {
+  width: var(--reading-spread-width, var(--reading-width, 38rem));
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  flex: 1;
+  column-width: var(--reading-page-width, var(--reading-width, 38rem));
+  column-gap: var(--reading-column-gap, 24px);
+  column-fill: auto;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+:root[data-reading-layout="pages"] #tomeshelf-content::after {
+  content: "";
+  position: absolute;
+  left: var(--reading-scroll-end, 0px);
+  width: 1px;
+  height: 1px;
+}
+
+:root[data-reading-layout="pages"] #tomeshelf-content::-webkit-scrollbar {
+  display: none;
+}
+
+:root[data-reading-layout="pages"]
+  .reading-pages
+  > nav[aria-label="Reading order"] {
+  flex-shrink: 0;
+  width: var(--reading-spread-width, var(--reading-width, 38rem));
+  max-width: 100%;
+}
+
+:root[data-reading-layout="pages"] #tomeshelf-content :where(img, svg, video) {
+  max-height: 100%;
+  break-inside: avoid;
+}
+
+:root[data-reading-layout="pages"]
+  #tomeshelf-content
+  figure
+  :where(img, svg, video) {
+  break-inside: avoid;
+  max-height: 100%;
+}
+
+:root[data-reading-layout="pages"]
+  #tomeshelf-content
+  :where(h1, h2, h3, h4, h5, h6) {
+  break-after: avoid;
+}
