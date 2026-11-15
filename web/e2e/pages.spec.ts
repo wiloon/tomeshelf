@@ -491,6 +491,38 @@ async function swipeArticle(page: Page, dx: number) {
   }, dx);
 }
 
+test("native touch movement turns only one spread after momentum", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await openBook(page);
+  const client = await page.context().newCDPSession(page);
+  await client.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  const box = (await article(page).boundingBox())!;
+  const x = box.x + box.width - 20;
+  const y = box.y + 80;
+  const before = (await pagesGeometry(page))!.articleScrollLeft;
+  await client.send("Input.dispatchTouchEvent", {
+    type: "touchStart",
+    touchPoints: [{ x, y }],
+  });
+  for (let i = 1; i <= 6; i++) {
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchMove",
+      touchPoints: [{ x: x - i * 45, y }],
+    });
+  }
+  await client.send("Input.dispatchTouchEvent", {
+    type: "touchEnd",
+    touchPoints: [],
+  });
+  await page.waitForTimeout(800);
+  const after = (await pagesGeometry(page))!.articleScrollLeft;
+  await control(page, "Previous").click();
+  expect((await pagesGeometry(page))!.articleScrollLeft).toBe(before);
+  expect(after).toBeGreaterThan(before);
+});
+
 test("a horizontal swipe turns one spread; a click on the text does not", async ({
   page,
 }) => {
@@ -517,6 +549,54 @@ test("a horizontal swipe turns one spread; a click on the text does not", async 
       .toBe(before);
     expect(mid, `swipe turned at ${width}`).toBeGreaterThan(before);
   }
+});
+
+test("native touch keeps table ownership through its edge", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 800 });
+  await openSemanticsCommon(page);
+  const table = page.locator("#wide-table");
+  await table.evaluate((el) => el.scrollIntoView({ inline: "nearest" }));
+  await page.waitForTimeout(200);
+  await table.evaluate((el) => {
+    el.scrollLeft = el.scrollWidth - el.clientWidth - 30;
+  });
+  const before = (await pagesGeometry(page))?.articleScrollLeft;
+  const box = await table.boundingBox();
+  if (!box) throw new Error("table has no box");
+  const client = await page.context().newCDPSession(page);
+  await client.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  const x = Math.min(box.x + box.width - 10, 350);
+  const y = box.y + box.height / 2;
+  async function swipe() {
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [{ x, y }],
+    });
+    for (let i = 1; i <= 4; i++) {
+      await client.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x: x - i * 35, y }],
+      });
+    }
+    await client.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+    await page.waitForTimeout(600);
+  }
+  await swipe();
+  expect(
+    await table.evaluate(
+      (el) => el.scrollLeft + el.clientWidth >= el.scrollWidth - 1,
+    ),
+  ).toBe(true);
+  expect((await pagesGeometry(page))?.articleScrollLeft).toBe(before);
+  await swipe();
+  expect((await pagesGeometry(page))?.articleScrollLeft).toBeGreaterThan(
+    before ?? 0,
+  );
 });
 
 test("a wheel over a wide table scrolls the table until its edge turns a spread", async ({
@@ -642,7 +722,29 @@ test("a fitting figure stays on one page; a tall caption keeps its image whole",
         img.right > root.left &&
         cap.left < root.right &&
         cap.right > root.left &&
-        Math.abs(img.left - cap.left) < root.width;
+        Math.floor(
+          (img.left - root.left) /
+            (Number.parseFloat(
+              getComputedStyle(document.getElementById("tomeshelf-content")!)
+                .columnWidth,
+            ) +
+              Number.parseFloat(
+                getComputedStyle(document.getElementById("tomeshelf-content")!)
+                  .columnGap,
+              )),
+        ) ===
+          Math.floor(
+            (cap.left - root.left) /
+              (Number.parseFloat(
+                getComputedStyle(document.getElementById("tomeshelf-content")!)
+                  .columnWidth,
+              ) +
+                Number.parseFloat(
+                  getComputedStyle(
+                    document.getElementById("tomeshelf-content")!,
+                  ).columnGap,
+                )),
+          );
       return {
         samePage,
         breakInside: getComputedStyle(document.querySelector("#small-figure")!)
@@ -652,6 +754,10 @@ test("a fitting figure stays on one page; a tall caption keeps its image whole",
     expect(small.breakInside, at).toMatch(/avoid/);
     expect(small.samePage, at).toBe(true);
 
+    await page.locator("#tall-caption-image").evaluate((el) => {
+      (el as HTMLElement).style.height = "2000px";
+      (el as HTMLElement).style.width = "auto";
+    });
     await page.locator("#tall-caption-figure").evaluate((el) => {
       el.scrollIntoView({ inline: "start", block: "nearest" });
     });
@@ -693,10 +799,10 @@ test("a fitting figure stays on one page; a tall caption keeps its image whole",
         )) {
           const box = el.getBoundingClientRect();
           if (
-            box.left < root.right &&
-            box.right > root.left &&
-            box.top < root.bottom &&
-            box.bottom > root.top
+            box.left >= root.left - 1 &&
+            box.right <= root.right + 1 &&
+            box.top >= root.top - 1 &&
+            box.bottom <= root.bottom + 1
           ) {
             const n = Number(el.id.replace("tall-caption-line-", ""));
             if (n) lines.push(n);
@@ -718,8 +824,10 @@ test("a fitting figure stays on one page; a tall caption keeps its image whole",
       if (visible.atEnd) break;
       await control(page, "Next").click();
     }
-    expect(seen.has(1), `first caption line ${at}`).toBe(true);
-    expect(seen.has(60), `last caption line ${at}`).toBe(true);
+    expect(
+      [...seen].sort((a, b) => a - b),
+      `all caption lines ${at}`,
+    ).toEqual(Array.from({ length: 60 }, (_, i) => i + 1));
   }
 
   // A heading is not left alone at the foot of a page (ADR-0010 Breaks).

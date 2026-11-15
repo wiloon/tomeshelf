@@ -269,6 +269,10 @@
   scrollbar-width: none;
 }
 
+:root[data-reading-layout="pages"] #tomeshelf-content * {
+  overscroll-behavior-x: contain;
+}
+
 :root[data-reading-layout="pages"] #tomeshelf-content::after {
   content: "";
   position: absolute;

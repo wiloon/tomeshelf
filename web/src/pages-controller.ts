@@ -155,6 +155,7 @@ export function attachPagesController(
   let snapping = false;
   let touchStartX: number | null = null;
   let touchStartY: number | null = null;
+  let touchOwner: "page" | "nested" | null = null;
 
   const measure = () => {
     const metrics = applyMetrics(article, availableWidth(), textWidthRem());
@@ -268,8 +269,26 @@ export function attachPagesController(
     if (event.touches.length !== 1) {
       return;
     }
+    touchOwner = null;
     touchStartX = event.touches[0].clientX;
     touchStartY = event.touches[0].clientY;
+  };
+
+  const onTouchMove = (event: TouchEvent) => {
+    if (
+      touchStartX === null ||
+      touchStartY === null ||
+      event.touches.length !== 1
+    )
+      return;
+    const dx = event.touches[0].clientX - touchStartX;
+    const dy = event.touches[0].clientY - touchStartY;
+    if (!touchOwner && Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 3) {
+      touchOwner = nestedScrollable(event.target, article, -dx)
+        ? "nested"
+        : "page";
+    }
+    if (touchOwner === "page") event.preventDefault();
   };
 
   const onTouchEnd = (event: TouchEvent) => {
@@ -284,7 +303,10 @@ export function attachPagesController(
     if (Math.abs(dx) < swipeMinPx || Math.abs(dx) < Math.abs(dy)) {
       return;
     }
-    if (nestedScrollable(event.target, article, -dx)) {
+    if (
+      touchOwner === "nested" ||
+      (!touchOwner && nestedScrollable(event.target, article, -dx))
+    ) {
       return;
     }
     go(dx < 0 ? "next" : "previous");
@@ -303,6 +325,7 @@ export function attachPagesController(
   document.addEventListener("keydown", onKeyDown);
   article.addEventListener("wheel", onWheel, { passive: false });
   article.addEventListener("touchstart", onTouchStart, { passive: true });
+  article.addEventListener("touchmove", onTouchMove, { passive: false });
   article.addEventListener("touchend", onTouchEnd, { passive: true });
   article.addEventListener("scroll", onScroll, { passive: true });
 
@@ -311,6 +334,7 @@ export function attachPagesController(
       document.removeEventListener("keydown", onKeyDown);
       article.removeEventListener("wheel", onWheel);
       article.removeEventListener("touchstart", onTouchStart);
+      article.removeEventListener("touchmove", onTouchMove);
       article.removeEventListener("touchend", onTouchEnd);
       article.removeEventListener("scroll", onScroll);
       window.clearTimeout(snapTimer);
