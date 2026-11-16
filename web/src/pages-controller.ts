@@ -14,6 +14,8 @@ import {
 export type PagesController = {
   destroy: () => void;
   relayout: (apply?: () => void) => void;
+  capturePlace: () => void;
+  restorePlace: () => void;
   turn: (direction: Turn) => boolean;
   atStart: () => boolean;
   atEnd: () => boolean;
@@ -150,6 +152,7 @@ export function attachPagesController(
 ): PagesController {
   const { article, availableWidth, textWidthRem, onExhausted } = options;
   const burst = wheelBurst;
+  let savedPlace: ReturnType<typeof firstVisibleCharacter> = null;
   let step = 0;
   let twoPages = false;
   let snapping = false;
@@ -345,6 +348,19 @@ export function attachPagesController(
       article.style.removeProperty("--reading-scroll-end");
     },
     relayout,
+    capturePlace: () => {
+      savedPlace = firstVisibleCharacter(article);
+    },
+    restorePlace: () => {
+      article.style.removeProperty("--reading-scroll-end");
+      measure();
+      extendFinalSpread();
+      if (savedPlace?.node.isConnected) {
+        scrollCharIntoSpread(article, step, savedPlace);
+      } else {
+        snap();
+      }
+    },
     turn: go,
     atStart,
     atEnd,

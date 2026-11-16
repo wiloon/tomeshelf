@@ -474,7 +474,9 @@ test("a late-loading font keeps the first visible character on the spread", asyn
   await page.goto(`/books/${id}/read/2`);
   await expect(article(page)).toContainText("Long fonts document paragraph 1");
   await page.setViewportSize({ width: 900, height: 800 });
-  await control(page, "Next").click();
+  for (let i = 0; i < 8; i++) {
+    await control(page, "Next").click();
+  }
   await expect
     .poll(async () => (await pagesGeometry(page))?.articleScrollLeft ?? 0)
     .toBeGreaterThan(0);
@@ -495,6 +497,8 @@ test("a late-loading font keeps the first visible character on the spread", asyn
       ),
     )
     .toBe(true);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(500);
   expect(await firstVisibleCharacterOnSpread(page)).toBe(true);
 });
 

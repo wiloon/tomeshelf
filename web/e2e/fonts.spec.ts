@@ -280,11 +280,10 @@ test("CJK characters use the same system font under Default and each bundled fac
     await panel.getByRole("radio", { name: face.label }).check();
     await waitForFamilyFaces(page, face.family);
     await panel.getByRole("button", { name: "Close" }).click();
-    const latinFamily = await page.locator("#regular").evaluate((el) => {
-      const family = getComputedStyle(el).fontFamily;
-      return family.split(",")[0].replace(/["']/g, "").trim();
-    });
-    expect(latinFamily).toBe(face.family);
+    const mixedFonts = await platformFonts(page, "#mixed");
+    expect(mixedFonts).toContainEqual(
+      expect.objectContaining({ familyName: face.family, isCustomFont: true }),
+    );
     const underBundled = await platformFonts(page, "#cjk");
     expect(underBundled).toHaveLength(1);
     expect(underBundled[0].familyName).toBe(underDefault[0].familyName);
