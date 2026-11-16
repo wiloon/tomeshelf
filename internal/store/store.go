@@ -299,6 +299,7 @@ type ReadingSettings struct {
 	Width      int64
 	Theme      string
 	Layout     string
+	Font       string
 }
 
 // ReadingSettings returns the user's saved reading settings, and false when
@@ -323,6 +324,7 @@ func (s *Store) SaveReadingSettings(ctx context.Context, username string, rs Rea
 		Width:      rs.Width,
 		Theme:      rs.Theme,
 		Layout:     rs.Layout,
+		Font:       rs.Font,
 		Username:   username,
 	})
 	if err != nil {

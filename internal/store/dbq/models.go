@@ -42,6 +42,7 @@ type ReadingSetting struct {
 	Width      int64
 	Theme      string
 	Layout     string
+	Font       string
 }
 
 type Session struct {

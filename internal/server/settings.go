@@ -20,12 +20,14 @@ type Settings interface {
 
 // defaultSettings are the reading settings of a user who saved none: the
 // reading page's look before settings existed. Layout defaults to pages
-// (ADR-0010).
-var defaultSettings = store.ReadingSettings{FontSize: 18, LineHeight: 1.6, Width: 38, Theme: "light", Layout: "pages"}
+// (ADR-0010). Font defaults to default (the system stack).
+var defaultSettings = store.ReadingSettings{FontSize: 18, LineHeight: 1.6, Width: 38, Theme: "light", Layout: "pages", Font: "default"}
 
 var themes = []string{"light", "dark", "sepia"}
 
 var layouts = []string{"pages", "scroll"}
+
+var fonts = []string{"default", "literata", "charter", "source-serif-4"}
 
 type settingsJSON struct {
 	FontSize   *float64 `json:"fontSize"`
@@ -33,6 +35,7 @@ type settingsJSON struct {
 	Width      *float64 `json:"width"`
 	Theme      *string  `json:"theme"`
 	Layout     *string  `json:"layout"`
+	Font       *string  `json:"font"`
 }
 
 // stepped reports whether v is one of min, min+step, … up to max.
@@ -51,7 +54,8 @@ func validSettings(s settingsJSON) (store.ReadingSettings, bool) {
 		!stepped(s.LineHeight, 1.2, 2, 0.1) ||
 		!stepped(s.Width, 28, 48, 2) ||
 		s.Theme == nil || !slices.Contains(themes, *s.Theme) ||
-		s.Layout == nil || !slices.Contains(layouts, *s.Layout) {
+		s.Layout == nil || !slices.Contains(layouts, *s.Layout) ||
+		s.Font == nil || !slices.Contains(fonts, *s.Font) {
 		return store.ReadingSettings{}, false
 	}
 	return store.ReadingSettings{
@@ -60,6 +64,7 @@ func validSettings(s settingsJSON) (store.ReadingSettings, bool) {
 		Width:      int64(math.Round(*s.Width)),
 		Theme:      *s.Theme,
 		Layout:     *s.Layout,
+		Font:       *s.Font,
 	}, true
 }
 
@@ -70,6 +75,15 @@ func layoutOrPages(layout string) string {
 		return layout
 	}
 	return "pages"
+}
+
+// fontOrDefault returns the stored font, or default when the row was saved
+// without one (empty string from before the column existed).
+func fontOrDefault(font string) string {
+	if slices.Contains(fonts, font) {
+		return font
+	}
+	return "default"
 }
 
 // getSettings answers the signed-in user's reading settings, or the defaults
@@ -89,7 +103,8 @@ func (s *site) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	fontSize, lineHeight, width := float64(rs.FontSize), rs.LineHeight, float64(rs.Width)
 	layout := layoutOrPages(rs.Layout)
-	writeJSON(w, http.StatusOK, settingsJSON{FontSize: &fontSize, LineHeight: &lineHeight, Width: &width, Theme: &rs.Theme, Layout: &layout})
+	font := fontOrDefault(rs.Font)
+	writeJSON(w, http.StatusOK, settingsJSON{FontSize: &fontSize, LineHeight: &lineHeight, Width: &width, Theme: &rs.Theme, Layout: &layout, Font: &font})
 }
 
 // putSettings replaces the signed-in user's reading settings with the
@@ -111,7 +126,7 @@ func (s *site) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	rs, valid := validSettings(body)
 	if err != nil || !valid {
-		writeError(w, http.StatusBadRequest, "the body must be a JSON object with fontSize 14–28, lineHeight 1.2–2.0 in steps of 0.1, width 28–48 in steps of 2, theme light, dark or sepia, and layout pages or scroll")
+		writeError(w, http.StatusBadRequest, "the body must be a JSON object with fontSize 14–28, lineHeight 1.2–2.0 in steps of 0.1, width 28–48 in steps of 2, theme light, dark or sepia, layout pages or scroll, and font default, literata, charter or source-serif-4")
 		return
 	}
 	if err := s.settings.SaveReadingSettings(r.Context(), user, rs); err != nil {

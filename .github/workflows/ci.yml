@@ -53,6 +53,8 @@ jobs:
       - name: Install Playwright browsers
         working-directory: web
         run: pnpm exec playwright install --with-deps chromium
+      - name: Install a CJK system font for fallback tests
+        run: sudo apt-get install -y fonts-noto-cjk
       - run: task e2e
       - if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

@@ -28,6 +28,7 @@ async function saveScrollLayout(page: Page) {
       width: 38,
       theme: "light",
       layout: "scroll",
+      font: "default",
     },
   });
   expect(res.status()).toBe(204);
