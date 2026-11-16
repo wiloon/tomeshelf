@@ -27,6 +27,7 @@ const defaults = {
   width: 38,
   theme: "light" as const,
   layout: "pages" as const,
+  font: "default" as const,
 };
 
 async function saveSettings(
