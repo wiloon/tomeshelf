@@ -87,15 +87,12 @@ function cjkFamiliesCoveringFixture(): string[] {
       }
     }
   }
-  const noto = [...families].filter(
-    (name) => name.includes("Noto Sans CJK") || name.includes("Noto Serif CJK"),
-  );
-  if (noto.length === 0) {
+  if (families.size === 0) {
     throw new Error(
-      "no CJK system font covering 你好世界 installed (fc-list ':charset=4f60 597d 4e16 754c' family must list a Noto Sans CJK or Noto Serif CJK family)",
+      "no CJK system font covering 你好世界 installed (fc-list ':charset=4f60 597d 4e16 754c' family printed nothing)",
     );
   }
-  return noto;
+  return [...families];
 }
 
 async function setupReader(page: Page, font: string = "default") {
