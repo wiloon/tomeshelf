@@ -39,10 +39,18 @@ export function createSaveQueue<T>({
   let reported: SaveStatus = "saved";
 
   const status = (): SaveStatus => {
-    if (pending || inFlight > 0) {
+    // A failed value stays pending for hide/pagehide, but is not "saving"
+    // until a timer or send is actually running.
+    if (inFlight > 0 || timer !== undefined) {
       return "saving";
     }
-    return failed ? "failed" : "saved";
+    if (failed) {
+      return "failed";
+    }
+    if (pending) {
+      return "saving";
+    }
+    return "saved";
   };
 
   const report = () => {
@@ -62,12 +70,20 @@ export function createSaveQueue<T>({
     if (disposed) return;
     inFlight--;
     failed = !ok;
+    if (!ok) {
+      // Keep the value pending so hide/pagehide and the next change resend it,
+      // without retrying in a tight loop here.
+      pending = true;
+    }
     if (inFlight === 0 && overlapped) {
       overlapped = false;
       pending = true;
       stopTimer();
+      sendIfFree();
+      report();
+      return;
     }
-    if (timer === undefined) {
+    if (timer === undefined && ok) {
       sendIfFree();
     }
     report();
@@ -101,11 +117,12 @@ export function createSaveQueue<T>({
       report();
     },
     hidden() {
-      if (timer !== undefined) {
-        stopTimer();
-        sendIfFree();
-        report();
+      if (timer === undefined && !pending) {
+        return;
       }
+      stopTimer();
+      sendIfFree();
+      report();
     },
     pagehide() {
       stopTimer();

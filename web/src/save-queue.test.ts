@@ -194,3 +194,35 @@ test("a change after a failed save saves the new settings", async () => {
   await settle();
   expect(q.status()).toBe("saved");
 });
+
+test("a failed save stays pending and is resent on hidden", async () => {
+  const { q, sent, values } = queue();
+  q.change("A");
+  await vi.advanceTimersByTimeAsync(500);
+  sent[0].fail();
+  await settle();
+  expect(q.status()).toBe("failed");
+  expect(values()).toEqual(["A"]);
+
+  q.hidden();
+  expect(values()).toEqual(["A", "A"]);
+  expect(q.status()).toBe("saving");
+  sent[1].succeed();
+  await settle();
+  expect(q.status()).toBe("saved");
+});
+
+test("a failed save stays pending and is resent on pagehide", async () => {
+  const { q, sent, values } = queue();
+  q.change("A");
+  await vi.advanceTimersByTimeAsync(500);
+  sent[0].fail();
+  await settle();
+  expect(q.status()).toBe("failed");
+
+  q.pagehide();
+  expect(values()).toEqual(["A", "A"]);
+  sent[1].succeed();
+  await settle();
+  expect(q.status()).toBe("saved");
+});

@@ -151,7 +151,11 @@ test("reading pages carry the generator and book meta tags, updated on every mov
   );
   await expect(meta(page, "tomeshelf:book")).toHaveCount(1);
   await expect(meta(page, "tomeshelf:book")).toHaveAttribute("content", id);
-  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(0);
+  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(1);
+  await expect(meta(page, "tomeshelf:restores-position")).toHaveAttribute(
+    "content",
+    "true",
+  );
 
   await nextDocument(page);
   await expect(article(page)).toContainText("A short note.");
@@ -162,11 +166,12 @@ test("reading pages carry the generator and book meta tags, updated on every mov
   );
   await expect(meta(page, "tomeshelf:book")).toHaveCount(1);
   await expect(meta(page, "tomeshelf:book")).toHaveAttribute("content", id);
-  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(0);
+  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(1);
 
   await page.getByRole("link", { name: "Library", exact: true }).click();
   await expect(meta(page, "tomeshelf:book")).toHaveCount(0);
   await expect(meta(page, "generator")).toHaveCount(0);
+  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(0);
   const other = await chooseBook(
     page,
     "A Hand-Made Reading Book",
@@ -176,7 +181,7 @@ test("reading pages carry the generator and book meta tags, updated on every mov
   await expect(meta(page, "tomeshelf:book")).toHaveCount(1);
   await expect(meta(page, "tomeshelf:book")).toHaveAttribute("content", other);
   await expect(meta(page, "generator")).toHaveCount(1);
-  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(0);
+  await expect(meta(page, "tomeshelf:restores-position")).toHaveCount(1);
 });
 
 test("one article holds the text in the main DOM, with blocks numbered per document", async ({

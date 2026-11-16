@@ -8,12 +8,14 @@ import {
 import {
   type MouseEvent as ReactMouseEvent,
   type RefObject,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { keepingAnchor } from "./anchor";
+import { setNavigationIntent, takeNavigationIntent } from "./navigation-intent";
 import {
   contentId,
   type DocumentPlace,
@@ -32,6 +34,8 @@ import {
   setPagesArrive,
   takePagesArrive,
 } from "./pages-controller";
+import { takePendingRestore } from "./pending-restore";
+import type { Locator, PagesRestore } from "./position";
 import {
   applyToPage,
   changesLayout,
@@ -41,6 +45,7 @@ import {
   SettingsPanel,
   useReadingSettings,
 } from "./settings";
+import { useReadingPosition } from "./use-reading-position";
 
 const route = getRouteApi("/books/$id/read/$n");
 
@@ -83,14 +88,27 @@ function availableArticleWidth(article: HTMLElement): number {
   return host?.clientWidth ?? window.innerWidth;
 }
 
+function sameHref(a: string, b: string): boolean {
+  try {
+    return decodeURIComponent(a) === decodeURIComponent(b);
+  } catch {
+    return a === b;
+  }
+}
+
 // The document's text, rendered into the page's own DOM (ADR-0001). It
-// starts at its top, or at the URL's fragment; in the pages layout it may
-// open on the last spread when arriving from the next document.
+// starts at its top, at the URL's fragment, or at a restored Locator.
 function BookDocument({
   html,
   place,
   layout,
   pagesRef,
+  restore,
+  applyRestore,
+  withoutCapture,
+  markProgrammatic,
+  noteArrival,
+  onMove,
   onEdges,
   onExhausted,
 }: {
@@ -98,6 +116,12 @@ function BookDocument({
   place: DocumentPlace;
   layout: Layout;
   pagesRef: RefObject<PagesController | null>;
+  restore: Locator | null;
+  applyRestore: (content: HTMLElement, locator: Locator) => void;
+  withoutCapture: (fn: () => void) => void;
+  markProgrammatic: () => void;
+  noteArrival: (kind: "restore" | "address" | "move") => void;
+  onMove: () => void;
   onEdges: (edges: { start: boolean; end: boolean }) => void;
   onExhausted: (direction: Turn) => void;
 }) {
@@ -112,6 +136,10 @@ function BookDocument({
   onExhaustedRef.current = onExhausted;
   const onEdgesRef = useRef(onEdges);
   onEdgesRef.current = onEdges;
+  const onMoveRef = useRef(onMove);
+  onMoveRef.current = onMove;
+  const restoreRef = useRef(restore);
+  restoreRef.current = restore;
 
   useLayoutEffect(() => markReadingPage(bookId), [bookId]);
 
@@ -122,15 +150,25 @@ function BookDocument({
     }
     renderDocument(article, html, { bookId, readingOrder, n });
 
+    const pending = restoreRef.current;
+    const kind = pending ? "restore" : takeNavigationIntent();
+
     if (layout !== "pages") {
-      const target = hash
-        ? document.getElementById(decodeFragment(hash))
-        : undefined;
-      if (target) {
-        target.scrollIntoView();
+      if (pending) {
+        applyRestore(article, pending);
       } else {
-        window.scrollTo(0, 0);
+        withoutCapture(() => {
+          const target = hash
+            ? document.getElementById(decodeFragment(hash))
+            : undefined;
+          if (target) {
+            target.scrollIntoView();
+          } else {
+            window.scrollTo(0, 0);
+          }
+        });
       }
+      noteArrival(kind);
       return;
     }
 
@@ -139,25 +177,35 @@ function BookDocument({
       availableWidth: () => availableArticleWidth(article),
       textWidthRem: () => textWidthRem.current,
       onExhausted: (direction) => onExhaustedRef.current(direction),
+      onMove: () => onMoveRef.current(),
     });
     pagesRef.current = controller;
 
-    const arrive = takePagesArrive();
-    const target = hash
-      ? document.getElementById(decodeFragment(hash))
-      : undefined;
-    if (target) {
-      target.scrollIntoView();
-    } else if (arrive === "end") {
-      article.scrollLeft = article.scrollWidth;
-      controller.relayout();
-    } else {
-      article.scrollLeft = 0;
-    }
-    onEdgesRef.current({
-      start: controller.atStart(),
-      end: controller.atEnd(),
+    withoutCapture(() => {
+      if (pending) {
+        applyRestore(article, pending);
+      } else {
+        const arrive = takePagesArrive();
+        const target = hash
+          ? document.getElementById(decodeFragment(hash))
+          : undefined;
+        if (target) {
+          target.scrollIntoView();
+          controller.relayout();
+        } else if (arrive === "end") {
+          article.scrollLeft = article.scrollWidth;
+          controller.relayout();
+        } else {
+          article.scrollLeft = 0;
+        }
+      }
+      markProgrammatic();
+      onEdgesRef.current({
+        start: controller.atStart(),
+        end: controller.atEnd(),
+      });
     });
+    noteArrival(kind);
 
     const onScroll = () => {
       controller.capturePlace();
@@ -184,9 +232,22 @@ function BookDocument({
         pagesRef.current = null;
       }
     };
-  }, [html, bookId, readingOrder, n, hash, layout, pagesRef]);
+  }, [
+    html,
+    bookId,
+    readingOrder,
+    n,
+    hash,
+    layout,
+    pagesRef,
+    applyRestore,
+    withoutCapture,
+    markProgrammatic,
+    noteArrival,
+  ]);
 
-  // Links to other documents move within the app instead of reloading it.
+  // Links to other documents (or fragments) move within the app and count as
+  // an explicit navigation arrival (ADR-0005).
   useEffect(() => {
     const article = ref.current;
     if (!article) {
@@ -198,10 +259,18 @@ function BookDocument({
       }
       const link = (event.target as Element).closest("a");
       const href = link?.getAttribute("href");
-      if (link?.target || !href?.startsWith("/books/")) {
+      if (link?.target || !href) {
+        return;
+      }
+      if (href.startsWith("#")) {
+        setNavigationIntent("move", href);
+        return;
+      }
+      if (!href.startsWith("/books/")) {
         return;
       }
       event.preventDefault();
+      setNavigationIntent("move", href);
       void navigate({ href });
     };
     article.addEventListener("click", onClick);
@@ -245,6 +314,7 @@ function TableOfContents({
     }
     event.preventDefault();
     ref.current?.close();
+    setNavigationIntent("move", href);
     void navigate({ href });
   };
 
@@ -315,6 +385,9 @@ function TableOfContents({
 function useSettingsOnPage(
   settings: ReadingSettings,
   pagesRef: RefObject<PagesController | null>,
+  withoutCapture: (fn: () => void) => void,
+  syncLocator: () => void,
+  reapplyLocator: () => boolean,
 ) {
   const applied = useRef<ReadingSettings | null>(null);
   const [ready, setReady] = useState(false);
@@ -324,19 +397,33 @@ function useSettingsOnPage(
     applied.current = settings;
     if (settings.layout === "pages") {
       if (pagesRef.current && previous && changesLayout(previous, settings)) {
-        pagesRef.current.relayout(() => applyToPage(settings));
+        withoutCapture(() => {
+          pagesRef.current?.relayout(() => applyToPage(settings));
+        });
+        if (previous.layout !== settings.layout) {
+          reapplyLocator();
+        } else {
+          syncLocator();
+        }
       } else {
         applyToPage(settings);
       }
     } else if (previous && changesLayout(previous, settings)) {
-      keepingAnchor(document.getElementById(contentId), () =>
-        applyToPage(settings),
-      );
+      withoutCapture(() => {
+        keepingAnchor(document.getElementById(contentId), () =>
+          applyToPage(settings),
+        );
+      });
+      if (previous.layout !== settings.layout) {
+        reapplyLocator();
+      } else {
+        syncLocator();
+      }
     } else {
       applyToPage(settings);
     }
     setReady(true);
-  }, [settings, pagesRef]);
+  }, [settings, pagesRef, withoutCapture, syncLocator, reapplyLocator]);
 
   useLayoutEffect(
     () => () => {
@@ -352,10 +439,12 @@ function ScrollOrderNav({
   id,
   n,
   length,
+  onNavigate,
 }: {
   id: string;
   n: number;
   length: number;
+  onNavigate: (href: string) => void;
 }) {
   return (
     <nav
@@ -367,6 +456,7 @@ function ScrollOrderNav({
           to="/books/$id/read/$n"
           params={{ id, n: String(n - 1) }}
           className="underline"
+          onClick={(event) => onNavigate(event.currentTarget.href)}
         >
           Previous
         </Link>
@@ -378,6 +468,7 @@ function ScrollOrderNav({
           to="/books/$id/read/$n"
           params={{ id, n: String(n + 1) }}
           className="underline"
+          onClick={(event) => onNavigate(event.currentTarget.href)}
         >
           Next
         </Link>
@@ -434,6 +525,11 @@ export function ReaderPage() {
   const { id, n: param } = route.useParams();
   const n = /^[1-9]\d*$/.test(param) ? Number(param) : 0;
   const navigate = useNavigate();
+  const [pending] = useState(() => takePendingRestore(id));
+  const [restore, setRestore] = useState<Locator | null>(
+    () => pending?.locator ?? null,
+  );
+  const [positionError] = useState(() => pending?.error ?? false);
   const manifest = useQuery({
     queryKey: ["manifest", id],
     queryFn: () => fetchManifest(id),
@@ -455,8 +551,48 @@ export function ReaderPage() {
   const settingsButton = useRef<HTMLButtonElement>(null);
   const pagesRef = useRef<PagesController | null>(null);
   const [edges, setEdges] = useState({ start: true, end: false });
-  const { settings, load } = useReadingSettings();
-  const settingsReady = useSettingsOnPage(settings, pagesRef);
+  const { settings, load, loadSettled } = useReadingSettings();
+  const pagesRestore = useCallback((): PagesRestore | null => {
+    const controller = pagesRef.current;
+    if (!controller) {
+      return null;
+    }
+    return {
+      prepareProgression: () => controller.prepareProgression(),
+      showCharacter: (node, offset) => controller.showCharacter(node, offset),
+      showProgression: (progression) => controller.showProgression(progression),
+    };
+  }, []);
+  const {
+    applyRestore,
+    withoutCapture,
+    syncLocator,
+    reapplyLocator,
+    recordMove,
+    noteArrival,
+    markProgrammatic,
+    flushDeparting,
+  } = useReadingPosition({
+    bookId: id,
+    href: href ?? "",
+    layout: settings.layout,
+    enabled: Boolean(href),
+    pagesRestore,
+  });
+  const applyRestoreOnce = useCallback(
+    (content: HTMLElement, locator: Locator) => {
+      applyRestore(content, locator);
+      setRestore(null);
+    },
+    [applyRestore],
+  );
+  const settingsReady = useSettingsOnPage(
+    settings,
+    pagesRef,
+    withoutCapture,
+    syncLocator,
+    reapplyLocator,
+  );
   useEffect(() => load(), [load]);
   const closeSettings = () => {
     setSettingsOpen(false);
@@ -466,12 +602,20 @@ export function ReaderPage() {
   const onExhausted = (direction: Turn) => {
     if (direction === "next" && n < readingOrder.length) {
       setPagesArrive("start");
+      setNavigationIntent(
+        "move",
+        `/books/${encodeURIComponent(id)}/read/${n + 1}`,
+      );
       void navigate({
         to: "/books/$id/read/$n",
         params: { id, n: String(n + 1) },
       });
     } else if (direction === "previous" && n > 1) {
       setPagesArrive("end");
+      setNavigationIntent(
+        "move",
+        `/books/${encodeURIComponent(id)}/read/${n - 1}`,
+      );
       void navigate({
         to: "/books/$id/read/$n",
         params: { id, n: String(n - 1) },
@@ -500,12 +644,19 @@ export function ReaderPage() {
   }
 
   const pages = settings.layout === "pages";
+  const restoreToApply =
+    restore && sameHref(restore.href, href ?? "") ? restore : null;
+  // A resume restore waits for settings to settle so a saved scroll layout is
+  // not painted as pages first (ADR-0005). Ordinary opens do not wait.
+  const waitingForRestore = Boolean(restoreToApply) && !loadSettled;
+  const showDocument =
+    settingsReady && doc.data !== undefined && !waitingForRestore;
 
   return (
     <div className={pages ? "reading-pages" : "flex flex-col gap-6"}>
       <div className={`flex flex-col gap-1 ${pages ? "reading-chrome" : ""}`}>
         <div className="flex justify-between gap-4 text-sm">
-          <Link to="/" className="underline">
+          <Link to="/" className="underline" onClick={() => flushDeparting()}>
             Library
           </Link>
           <div className="flex gap-4">
@@ -537,16 +688,27 @@ export function ReaderPage() {
             : Object.values(manifest.data.metadata.title)[0]}
         </h2>
       </div>
+      {positionError && (
+        <p role="alert" className="text-red-700">
+          The reading position could not be loaded.
+        </p>
+      )}
       {doc.isError && (
         <Problem text="This document could not be loaded. Please try again." />
       )}
       {doc.isPending && <p role="status">Loading…</p>}
-      {settingsReady && doc.data !== undefined && (
+      {showDocument && (
         <BookDocument
           html={doc.data}
           place={{ bookId: id, readingOrder: manifest.data.readingOrder, n }}
           layout={settings.layout}
           pagesRef={pagesRef}
+          restore={restoreToApply}
+          applyRestore={applyRestoreOnce}
+          withoutCapture={withoutCapture}
+          markProgrammatic={markProgrammatic}
+          noteArrival={noteArrival}
+          onMove={recordMove}
           onEdges={setEdges}
           onExhausted={onExhausted}
         />
@@ -559,7 +721,12 @@ export function ReaderPage() {
           onTurn={turn}
         />
       ) : (
-        <ScrollOrderNav id={id} n={n} length={readingOrder.length} />
+        <ScrollOrderNav
+          id={id}
+          n={n}
+          length={readingOrder.length}
+          onNavigate={(href) => setNavigationIntent("move", href)}
+        />
       )}
       <TableOfContents
         open={contentsOpen}
