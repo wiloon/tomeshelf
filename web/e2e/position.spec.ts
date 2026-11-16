@@ -1298,9 +1298,11 @@ test("clicking the current fragment then changing layout does not save", async (
   await article(page).getByRole("link", { name: "Current fragment" }).click();
   await page.waitForTimeout(700);
   expect(puts).toHaveLength(0);
-  await page.getByRole("button", { name: "Settings" }).click();
-  // force: skip Playwright's scroll-into-view, which would move the window
-  // while the layout is still scroll and count as a reading move.
+  // Playwright scrolls a control into view before acting on it. The window
+  // is scrolled down to #second-target and the layout is still scroll, so
+  // that scroll is a reading move that saves the document's top. Dispatch
+  // the Settings click and force the radio to keep the window where it is.
+  await page.getByRole("button", { name: "Settings" }).dispatchEvent("click");
   await page.getByRole("radio", { name: "Pages" }).check({ force: true });
   await page.waitForTimeout(900);
   expect(puts).toHaveLength(0);
