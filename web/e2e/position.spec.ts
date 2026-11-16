@@ -38,6 +38,7 @@ async function saveSettings(
     width?: number;
     theme?: "light" | "dark" | "sepia";
     layout?: "pages" | "scroll";
+    font?: "default" | "literata" | "charter" | "source-serif-4";
   } = {},
 ) {
   const res = await page.request.put("/api/settings", {
@@ -1277,7 +1278,7 @@ test("a cached document navigation flushes the departure before saving the arriv
   expect(hrefs[1]).toMatch(/two\.xhtml/);
 });
 
-test.fixme("clicking the current fragment then changing layout does not save", async ({
+test("clicking the current fragment then changing layout does not save", async ({
   page,
 }) => {
   await setUp(page, "scroll");
@@ -1289,18 +1290,114 @@ test.fixme("clicking the current fragment then changing layout does not save", a
   await page.waitForTimeout(600);
   await article(page).evaluate((el) => {
     const link = document.createElement("a");
-    link.href = "#second-target";
+    link.setAttribute("href", "#second-target");
     link.textContent = "Current fragment";
     el.querySelector("#second-target")?.append(link);
   });
   const puts = positionPuts(page);
-  await article(page)
-    .getByRole("link", { name: "Current fragment" })
-    .dispatchEvent("click", { button: 0 });
+  await article(page).getByRole("link", { name: "Current fragment" }).click();
+  await page.waitForTimeout(700);
+  expect(puts).toHaveLength(0);
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("radio", { name: "Pages" }).check();
+  // force: skip Playwright's scroll-into-view, which would move the window
+  // while the layout is still scroll and count as a reading move.
+  await page.getByRole("radio", { name: "Pages" }).check({ force: true });
   await page.waitForTimeout(900);
   expect(puts).toHaveLength(0);
+});
+
+test("Back/Forward into a document address never restores", async ({
+  page,
+}) => {
+  await setUp(page, "pages");
+  await importChapters(page);
+  const id = await openFromLibrary(page);
+  const puts = positionPuts(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("button", { name: "Next" })
+    .click();
+  await expect.poll(() => puts.length).toBeGreaterThan(0);
+  const saved = puts.at(-1)?.postDataJSON() as {
+    locations: { progression: number };
+  };
+  expect(saved.locations.progression).toBeGreaterThan(0);
+
+  await page.goto(`/books/${id}/read/1`);
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const el = document.getElementById("tomeshelf-content");
+        return el instanceof HTMLElement ? el.scrollLeft : -1;
+      }),
+    )
+    .toBe(0);
+  await page.goto(`/books/${id}/read/2`);
+  await expect(article(page)).toContainText("Notes");
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+  // A restore would advance scrollLeft to the stored progression (> 0).
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const el = document.getElementById("tomeshelf-content");
+        return el instanceof HTMLElement ? el.scrollLeft : -1;
+      }),
+    )
+    .toBe(0);
+});
+
+test("a stored href outside the reading order opens document 1 at its start", async ({
+  page,
+}) => {
+  await setUp(page, "scroll");
+  await importChapters(page);
+  const id = await openFromLibrary(page);
+  // The server rejects a PUT with an href outside the reading order; a
+  // position whose href later leaves the order is served as a GET body.
+  await page.route(/\/api\/books\/\d+\/position$/, async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        href: "OEBPS/text/gone.xhtml",
+        locations: { progression: 0.9 },
+        text: { before: "", highlight: "nowhere", after: "" },
+      }),
+    });
+  });
+  await page.goto(`/books/${id}/read`);
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+  await expect(article(page)).toContainText("CHAPTER I.");
+  await expect.poll(async () => page.evaluate(() => window.scrollY)).toBe(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("a position saved at two pages restores after a font change", async ({
+  page,
+}) => {
+  await setUp(page, "pages");
+  await importChapters(page);
+  const id = await openFromLibrary(page);
+  const puts = positionPuts(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("button", { name: "Next" })
+    .click();
+  await expect.poll(() => puts.length).toBeGreaterThan(0);
+  const saved = puts.at(-1)?.postDataJSON().locations.cssSelector as string;
+
+  await saveSettings(page, { font: "literata" });
+  await page.goto("/");
+  await page.getByRole("link", { name: new RegExp(chapters) }).click();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+  await expect.poll(() => blockOnScreen(page, saved)).toBe(true);
 });
 
 test("an image-only odd-page document saves and restores its last spread", async ({
