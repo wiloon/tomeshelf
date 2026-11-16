@@ -159,18 +159,26 @@ function BookDocument({
       end: controller.atEnd(),
     });
 
-    const onScroll = () =>
+    const onScroll = () => {
+      controller.capturePlace();
       onEdgesRef.current({
         start: controller.atStart(),
         end: controller.atEnd(),
       });
+    };
+    controller.capturePlace();
     article.addEventListener("scroll", onScroll, { passive: true });
     const onResize = () => controller.relayout();
     window.addEventListener("resize", onResize);
+    // A late-loading face reflows the columns; keep the first visible
+    // character on the spread (ADR-0010 Re-layout).
+    const onFontsLoaded = () => controller.restorePlace();
+    document.fonts.addEventListener("loadingdone", onFontsLoaded);
 
     return () => {
       article.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
+      document.fonts.removeEventListener("loadingdone", onFontsLoaded);
       controller.destroy();
       if (pagesRef.current === controller) {
         pagesRef.current = null;

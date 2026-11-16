@@ -14,13 +14,19 @@ export type Theme = "light" | "dark" | "sepia";
 
 export type Layout = "pages" | "scroll";
 
+export type Font = "default" | "literata" | "charter" | "source-serif-4";
+
 export type ReadingSettings = {
   fontSize: number;
   lineHeight: number;
   width: number;
   theme: Theme;
   layout: Layout;
+  font: Font;
 };
+
+export const defaultFontStack =
+  '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
 
 export const defaultSettings: ReadingSettings = {
   fontSize: 18,
@@ -28,7 +34,21 @@ export const defaultSettings: ReadingSettings = {
   width: 38,
   theme: "light",
   layout: "pages",
+  font: "default",
 };
+
+export function fontFamilyStack(font: Font): string {
+  switch (font) {
+    case "literata":
+      return `"Literata", ${defaultFontStack}`;
+    case "charter":
+      return `"Charter", ${defaultFontStack}`;
+    case "source-serif-4":
+      return `"Source Serif 4", ${defaultFontStack}`;
+    default:
+      return defaultFontStack;
+  }
+}
 
 type Stepped = "fontSize" | "lineHeight" | "width";
 
@@ -47,6 +67,13 @@ const themes: { value: Theme; label: string }[] = [
 const layouts: { value: Layout; label: string }[] = [
   { value: "pages", label: "Pages" },
   { value: "scroll", label: "Scroll" },
+];
+
+const fonts: { value: Font; label: string }[] = [
+  { value: "default", label: "Default" },
+  { value: "literata", label: "Literata" },
+  { value: "charter", label: "Charter" },
+  { value: "source-serif-4", label: "Source Serif 4" },
 ];
 
 type SettingsState = {
@@ -203,7 +230,8 @@ export function changesLayout(a: ReadingSettings, b: ReadingSettings) {
     a.fontSize !== b.fontSize ||
     a.lineHeight !== b.lineHeight ||
     a.width !== b.width ||
-    a.layout !== b.layout
+    a.layout !== b.layout ||
+    a.font !== b.font
   );
 }
 
@@ -214,8 +242,13 @@ export function applyToPage(settings: ReadingSettings) {
   root.style.setProperty("--reading-font-size", `${settings.fontSize}px`);
   root.style.setProperty("--reading-line-height", String(settings.lineHeight));
   root.style.setProperty("--reading-width", `${settings.width}rem`);
+  root.style.setProperty(
+    "--reading-font-family",
+    fontFamilyStack(settings.font),
+  );
   root.dataset.readingTheme = settings.theme;
   root.dataset.readingLayout = settings.layout;
+  root.dataset.readingFont = settings.font;
 }
 
 // Takes the settings off the root element, so other pages look as before.
@@ -225,11 +258,13 @@ export function clearFromPage() {
     "--reading-font-size",
     "--reading-line-height",
     "--reading-width",
+    "--reading-font-family",
   ]) {
     root.style.removeProperty(name);
   }
   delete root.dataset.readingTheme;
   delete root.dataset.readingLayout;
+  delete root.dataset.readingFont;
 }
 
 function Stepper({
@@ -326,6 +361,23 @@ export function SettingsPanel({
           format={(v) => v.toFixed(1)}
         />
         <Stepper name="Text width" setting="width" format={(v) => `${v} rem`} />
+        <fieldset className="flex flex-col gap-2">
+          <legend>Font</legend>
+          <div className="flex flex-col gap-1">
+            {fonts.map(({ value, label }) => (
+              <label key={value} className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="reading-font"
+                  value={value}
+                  checked={settings.font === value}
+                  onChange={() => setSettings({ ...settings, font: value })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
         <fieldset className="flex items-center justify-between gap-4">
           <legend className="float-left">Layout</legend>
           <div className="flex gap-3">

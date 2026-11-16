@@ -141,7 +141,7 @@ func (q *Queries) GetReadingPosition(ctx context.Context, arg GetReadingPosition
 }
 
 const getReadingSettings = `-- name: GetReadingSettings :one
-SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout
+SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout, reading_settings.font
 FROM reading_settings JOIN users ON users.id = reading_settings.user_id
 WHERE users.username = ?
 `
@@ -152,6 +152,7 @@ type GetReadingSettingsRow struct {
 	Width      int64
 	Theme      string
 	Layout     string
+	Font       string
 }
 
 func (q *Queries) GetReadingSettings(ctx context.Context, username string) (GetReadingSettingsRow, error) {
@@ -163,6 +164,7 @@ func (q *Queries) GetReadingSettings(ctx context.Context, username string) (GetR
 		&i.Width,
 		&i.Theme,
 		&i.Layout,
+		&i.Font,
 	)
 	return i, err
 }
@@ -400,15 +402,16 @@ func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([
 }
 
 const putReadingSettings = `-- name: PutReadingSettings :execrows
-INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout)
-SELECT id, ?1, ?2, ?3, ?4, ?5
-FROM users WHERE username = ?6
+INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout, font)
+SELECT id, ?1, ?2, ?3, ?4, ?5, ?6
+FROM users WHERE username = ?7
 ON CONFLICT (user_id) DO UPDATE SET
     font_size = excluded.font_size,
     line_height = excluded.line_height,
     width = excluded.width,
     theme = excluded.theme,
-    layout = excluded.layout
+    layout = excluded.layout,
+    font = excluded.font
 `
 
 type PutReadingSettingsParams struct {
@@ -417,6 +420,7 @@ type PutReadingSettingsParams struct {
 	Width      int64
 	Theme      string
 	Layout     string
+	Font       string
 	Username   string
 }
 
@@ -427,6 +431,7 @@ func (q *Queries) PutReadingSettings(ctx context.Context, arg PutReadingSettings
 		arg.Width,
 		arg.Theme,
 		arg.Layout,
+		arg.Font,
 		arg.Username,
 	)
 	if err != nil {

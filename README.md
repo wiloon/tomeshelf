@@ -91,6 +91,14 @@ For a consistent copy, stop tomeshelf first (`docker compose stop tomeshelf`, or
 
 Reading pages follow a documented [DOM contract](docs/dom-contract.md): the markup a reading extension can rely on, and what happens when the reader moves to another document. Changing it is a breaking change.
 
+## Fonts
+
+The reading page can use these bundled typefaces (see the Font setting):
+
+- **Literata** — [SIL Open Font License 1.1](web/public/fonts/literata/OFL.txt)
+- **Charter** (Bitstream Charter) — [Bitstream Charter license](web/public/fonts/charter/LICENSE.txt); BITSTREAM CHARTER is a registered trademark of Bitstream Inc.
+- **Source Serif 4** — [SIL Open Font License 1.1](web/public/fonts/source-serif-4/OFL.txt)
+
 ## License
 
 tomeshelf is licensed under the GNU Affero General Public License v3; see [LICENSE](LICENSE).
