@@ -185,10 +185,9 @@ export function useReadingPosition({
         moved.current = false;
         return;
       }
-      // Capture after layout paints the arrival place.
-      requestAnimationFrame(() => {
-        recordMove();
-      });
+      // Fragment scrollIntoView is synchronous; capture now so a follow-up
+      // placement effect (hash settling) cannot race an empty article.
+      recordMove();
     },
     [recordMove],
   );

@@ -64,15 +64,23 @@ function Problem({ text }: { text: string }) {
 
 // A plain left click, which the app may take over; any other click keeps the
 // browser's own behaviour, such as opening a new tab.
-function isPlainClick(event: MouseEvent | ReactMouseEvent): boolean {
+function isUnmodifiedClick(event: MouseEvent | ReactMouseEvent): boolean {
   return !(
-    event.defaultPrevented ||
     event.button !== 0 ||
     event.metaKey ||
     event.ctrlKey ||
     event.shiftKey ||
     event.altKey
   );
+}
+
+function readingNFromLocation(): number | null {
+  const match = window.location.pathname.match(/\/read\/(\d+)\/?$/);
+  return match ? Number(match[1]) : null;
+}
+
+function isPlainClick(event: MouseEvent | ReactMouseEvent): boolean {
+  return isUnmodifiedClick(event) && !event.defaultPrevented;
 }
 
 function decodeFragment(hash: string): string {
@@ -108,6 +116,7 @@ function BookDocument({
   withoutCapture,
   markProgrammatic,
   noteArrival,
+  flushDeparting,
   onMove,
   onEdges,
   onExhausted,
@@ -121,6 +130,7 @@ function BookDocument({
   withoutCapture: (fn: () => void) => void;
   markProgrammatic: () => void;
   noteArrival: (kind: "restore" | "address" | "move") => void;
+  flushDeparting: () => void;
   onMove: () => void;
   onEdges: (edges: { start: boolean; end: boolean }) => void;
   onExhausted: (direction: Turn) => void;
@@ -151,7 +161,14 @@ function BookDocument({
     renderDocument(article, html, { bookId, readingOrder, n });
 
     const pending = restoreRef.current;
-    const kind = pending ? "restore" : takeNavigationIntent();
+    // The router may update the URL before this document's route params; only
+    // consume a move intent when the address already names this document.
+    const atThisDocument = readingNFromLocation() === n;
+    const kind = pending
+      ? "restore"
+      : atThisDocument
+        ? takeNavigationIntent()
+        : "address";
 
     if (layout !== "pages") {
       if (pending) {
@@ -247,14 +264,16 @@ function BookDocument({
   ]);
 
   // Links to other documents (or fragments) move within the app and count as
-  // an explicit navigation arrival (ADR-0005).
+  // an explicit navigation arrival (ADR-0005). Capture phase runs before the
+  // router claims the click, so the intent is recorded while the address is
+  // still the departing document.
   useEffect(() => {
     const article = ref.current;
     if (!article) {
       return;
     }
     const onClick = (event: MouseEvent) => {
-      if (!isPlainClick(event)) {
+      if (!isUnmodifiedClick(event)) {
         return;
       }
       const link = (event.target as Element).closest("a");
@@ -262,20 +281,32 @@ function BookDocument({
       if (link?.target || !href) {
         return;
       }
+      const target = new URL(href, window.location.href);
+      if (
+        target.pathname === window.location.pathname &&
+        target.hash === window.location.hash
+      ) {
+        event.preventDefault();
+        return;
+      }
       if (href.startsWith("#")) {
-        setNavigationIntent("move", href);
+        flushDeparting();
+        setNavigationIntent("move", href, { force: true });
         return;
       }
       if (!href.startsWith("/books/")) {
         return;
       }
-      event.preventDefault();
-      setNavigationIntent("move", href);
-      void navigate({ href });
+      flushDeparting();
+      setNavigationIntent("move", href, { force: true });
+      if (!event.defaultPrevented) {
+        event.preventDefault();
+        void navigate({ href });
+      }
     };
-    article.addEventListener("click", onClick);
-    return () => article.removeEventListener("click", onClick);
-  }, [navigate]);
+    article.addEventListener("click", onClick, true);
+    return () => article.removeEventListener("click", onClick, true);
+  }, [navigate, flushDeparting]);
 
   return <article id={contentId} ref={ref} />;
 }
@@ -286,12 +317,14 @@ function BookDocument({
 function TableOfContents({
   open,
   onClose,
+  flushDeparting,
   bookId,
   readingOrder,
   toc,
 }: {
   open: boolean;
   onClose: () => void;
+  flushDeparting: () => void;
   bookId: string;
   readingOrder: ManifestLink[];
   toc: ManifestLink[];
@@ -314,6 +347,7 @@ function TableOfContents({
     }
     event.preventDefault();
     ref.current?.close();
+    flushDeparting();
     setNavigationIntent("move", href);
     void navigate({ href });
   };
@@ -601,6 +635,7 @@ export function ReaderPage() {
 
   const onExhausted = (direction: Turn) => {
     if (direction === "next" && n < readingOrder.length) {
+      flushDeparting();
       setPagesArrive("start");
       setNavigationIntent(
         "move",
@@ -611,6 +646,7 @@ export function ReaderPage() {
         params: { id, n: String(n + 1) },
       });
     } else if (direction === "previous" && n > 1) {
+      flushDeparting();
       setPagesArrive("end");
       setNavigationIntent(
         "move",
@@ -708,6 +744,7 @@ export function ReaderPage() {
           withoutCapture={withoutCapture}
           markProgrammatic={markProgrammatic}
           noteArrival={noteArrival}
+          flushDeparting={flushDeparting}
           onMove={recordMove}
           onEdges={setEdges}
           onExhausted={onExhausted}
@@ -725,12 +762,16 @@ export function ReaderPage() {
           id={id}
           n={n}
           length={readingOrder.length}
-          onNavigate={(href) => setNavigationIntent("move", href)}
+          onNavigate={(href) => {
+            flushDeparting();
+            setNavigationIntent("move", href);
+          }}
         />
       )}
       <TableOfContents
         open={contentsOpen}
         onClose={() => setContentsOpen(false)}
+        flushDeparting={flushDeparting}
         bookId={id}
         readingOrder={manifest.data.readingOrder}
         toc={manifest.data.toc ?? []}
