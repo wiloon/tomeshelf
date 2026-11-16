@@ -451,7 +451,7 @@ test("a late-loading font keeps the first visible character on the spread", asyn
     data: { username: "reader", password: "reader password" },
   });
   expect(setup.status()).toBe(201);
-  await saveSettings(page, { font: "literata" });
+  await saveSettings(page, { font: "literata", fontSize: 28 });
   let release = false;
   const held: import("@playwright/test").Route[] = [];
   await page.route("**/fonts/literata/**", async (route) => {
@@ -473,8 +473,16 @@ test("a late-loading font keeps the first visible character on the spread", asyn
   const id = new URL(page.url()).pathname.split("/")[2];
   await page.goto(`/books/${id}/read/2`);
   await expect(article(page)).toContainText("Long fonts document paragraph 1");
-  await page.setViewportSize({ width: 900, height: 800 });
-  for (let i = 0; i < 8; i++) {
+  // One page wide with a large size: every earlier page reflows when the
+  // face swaps in, so the drift adds up to more than a page.
+  await page.setViewportSize({ width: 600, height: 800 });
+  for (let i = 0; i < 200; i++) {
+    const far = await article(page).evaluate(
+      (el) => el.scrollLeft > el.scrollWidth * 0.6,
+    );
+    if (far) {
+      break;
+    }
     await control(page, "Next").click();
   }
   await expect
