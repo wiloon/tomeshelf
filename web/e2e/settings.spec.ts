@@ -48,6 +48,7 @@ async function saveScrollLayout(page: Page) {
       width: 38,
       theme: "light",
       layout: "scroll",
+      font: "default",
     },
   });
   expect(res.status()).toBe(204);
@@ -692,6 +693,7 @@ type Settings = {
   width: number;
   theme: string;
   layout: string;
+  font: string;
 };
 
 const defaults: Settings = {
@@ -700,6 +702,7 @@ const defaults: Settings = {
   width: 38,
   theme: "light",
   layout: "pages",
+  font: "default",
 };
 
 async function saved(api: APIRequestContext): Promise<Settings> {
@@ -776,9 +779,16 @@ test("a change survives a reload and opens on another device, while another user
   await panel.getByRole("button", { name: "Increase font size" }).click();
   await panel.getByRole("radio", { name: "Dark" }).check();
   await panel.getByRole("radio", { name: "Scroll" }).check();
+  await panel.getByRole("radio", { name: "Literata" }).check();
   await expect
     .poll(() => saved(page.request))
-    .toEqual({ ...defaults, fontSize: 20, theme: "dark", layout: "scroll" });
+    .toEqual({
+      ...defaults,
+      fontSize: 20,
+      theme: "dark",
+      layout: "scroll",
+      font: "literata",
+    });
 
   await page.reload();
   await expect(article(page)).toContainText(documents.common.text);
@@ -790,6 +800,10 @@ test("a change survives a reload and opens on another device, while another user
   await expect(page.locator("html")).toHaveAttribute(
     "data-reading-layout",
     "scroll",
+  );
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-reading-font",
+    "literata",
   );
 
   const device = await browser.newContext({
@@ -806,6 +820,10 @@ test("a change survives a reload and opens on another device, while another user
   await expect(second.locator("html")).toHaveAttribute(
     "data-reading-layout",
     "scroll",
+  );
+  await expect(second.locator("html")).toHaveAttribute(
+    "data-reading-font",
+    "literata",
   );
   await device.close();
 
@@ -840,6 +858,10 @@ test("a change survives a reload and opens on another device, while another user
   await expect(othersPage.locator("html")).toHaveAttribute(
     "data-reading-layout",
     "pages",
+  );
+  await expect(othersPage.locator("html")).toHaveAttribute(
+    "data-reading-font",
+    "default",
   );
   await other.close();
 });

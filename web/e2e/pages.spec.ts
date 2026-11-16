@@ -18,12 +18,20 @@ const test = base.extend<{ server: TestServer }>({
 const books = path.resolve(import.meta.dirname, "../../testdata/books");
 const title = "A Hand-Made Reading Book";
 
-const defaults = {
+const defaults: {
+  fontSize: number;
+  lineHeight: number;
+  width: number;
+  theme: "light" | "dark" | "sepia";
+  layout: "pages" | "scroll";
+  font: "default" | "literata" | "charter" | "source-serif-4";
+} = {
   fontSize: 18,
   lineHeight: 1.6,
   width: 38,
-  theme: "light" as const,
-  layout: "pages" as const,
+  theme: "light",
+  layout: "pages",
+  font: "default",
 };
 
 async function saveSettings(
@@ -360,12 +368,7 @@ test("wheel momentum does not turn a second spread across documents", async ({
   expect((await pagesGeometry(page))?.articleScrollLeft).toBe(0);
 });
 
-test("font size changes keep the first visible character on the spread", async ({
-  page,
-}) => {
-  await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
-  await control(page, "Next").click();
+async function markFirstVisibleCharacter(page: Page) {
   await article(page).evaluate((el) => {
     const root = el.getBoundingClientRect();
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -391,21 +394,121 @@ test("font size changes keep the first visible character on the spread", async (
     }
     throw new Error("No visible character");
   });
+}
+
+async function firstVisibleCharacterOnSpread(page: Page) {
+  return article(page).evaluate((el) => {
+    const range = Reflect.get(window, "testAnchor") as Range;
+    const a = el.getBoundingClientRect();
+    const b = range.getBoundingClientRect();
+    return (
+      b.right > a.left &&
+      b.left < a.right &&
+      b.bottom > a.top &&
+      b.top < a.bottom
+    );
+  });
+}
+
+test("font size changes keep the first visible character on the spread", async ({
+  page,
+}) => {
+  await openBook(page);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await control(page, "Next").click();
+  await markFirstVisibleCharacter(page);
   await page.getByRole("button", { name: "Settings" }).click();
   await page.getByRole("button", { name: "Increase font size" }).click();
-  expect(
-    await article(page).evaluate((el) => {
-      const range = Reflect.get(window, "testAnchor") as Range;
-      const a = el.getBoundingClientRect();
-      const b = range.getBoundingClientRect();
-      return (
-        b.right > a.left &&
-        b.left < a.right &&
-        b.bottom > a.top &&
-        b.top < a.bottom
-      );
-    }),
-  ).toBe(true);
+  expect(await firstVisibleCharacterOnSpread(page)).toBe(true);
+});
+
+test("changing the font keeps the first visible character on the spread", async ({
+  page,
+}) => {
+  await openBook(page);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await control(page, "Next").click();
+  await markFirstVisibleCharacter(page);
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("radio", { name: "Literata" }).check();
+  await expect
+    .poll(async () =>
+      page.evaluate(() =>
+        [...document.fonts].some(
+          (f) =>
+            f.family.replace(/["']/g, "") === "Literata" &&
+            f.status === "loaded",
+        ),
+      ),
+    )
+    .toBe(true);
+  expect(await firstVisibleCharacterOnSpread(page)).toBe(true);
+});
+
+test("a late-loading font keeps the first visible character on the spread", async ({
+  page,
+}) => {
+  const setup = await page.request.post("/api/setup", {
+    data: { username: "reader", password: "reader password" },
+  });
+  expect(setup.status()).toBe(201);
+  await saveSettings(page, { font: "literata", fontSize: 28 });
+  let release = false;
+  const held: import("@playwright/test").Route[] = [];
+  await page.route("**/fonts/literata/**", async (route) => {
+    if (release) {
+      await route.continue();
+      return;
+    }
+    held.push(route);
+  });
+  await page.goto("/");
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "fonts.epub"));
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported A Hand-Made Fonts Book.",
+  );
+  await page.getByRole("link", { name: /A Hand-Made Fonts Book/ }).click();
+  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  const id = new URL(page.url()).pathname.split("/")[2];
+  await page.goto(`/books/${id}/read/2`);
+  await expect(article(page)).toContainText("Long fonts document paragraph 1");
+  // One page wide with a large size: every earlier page reflows when the
+  // face swaps in, so the drift adds up to more than a page.
+  await page.setViewportSize({ width: 600, height: 800 });
+  for (let i = 0; i < 200; i++) {
+    const far = await article(page).evaluate(
+      (el) => el.scrollLeft > el.scrollWidth * 0.6,
+    );
+    if (far) {
+      break;
+    }
+    await control(page, "Next").click();
+  }
+  await expect
+    .poll(async () => (await pagesGeometry(page))?.articleScrollLeft ?? 0)
+    .toBeGreaterThan(0);
+  await markFirstVisibleCharacter(page);
+  expect(held.length).toBeGreaterThan(0);
+  release = true;
+  for (const route of held) {
+    await route.continue();
+  }
+  await expect
+    .poll(async () =>
+      page.evaluate(() =>
+        [...document.fonts].some(
+          (f) =>
+            f.family.replace(/["']/g, "") === "Literata" &&
+            f.status === "loaded",
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForTimeout(500);
+  expect(await firstVisibleCharacterOnSpread(page)).toBe(true);
 });
 
 test("scrollIntoView keeps a right-page target visible after snapping", async ({

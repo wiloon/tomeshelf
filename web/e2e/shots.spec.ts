@@ -78,6 +78,7 @@ test("shoots the reader at 390 and 1280 px", async ({ shots, shotsDir }) => {
       width: 38,
       theme: "light",
       layout: "scroll",
+      font: "default",
     },
   });
   expect(settings.status()).toBe(204);
