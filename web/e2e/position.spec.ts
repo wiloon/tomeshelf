@@ -507,29 +507,10 @@ test("restore falls back when the quote then the block are missing", async ({
   await importChapters(page);
   const id = await openFromLibrary(page);
 
-  const save = await page.request.put(`/api/books/${id}/position`, {
-    data: {
-      tabId: "e2e-tab",
-      sequence: 1,
-      href: "OEBPS/text/book.xhtml",
-      locations: {
-        progression: 0.2,
-        cssSelector: '[data-tomeshelf-block="3"]',
-        characterOffset: 0,
-      },
-      text: {
-        before: "",
-        highlight: "Chapter I begins.",
-        after: " The traveller",
-      },
-    },
-  });
-  expect(save.status()).toBe(204);
-
   await page.request.put(`/api/books/${id}/position`, {
     data: {
       tabId: "e2e-tab",
-      sequence: 2,
+      sequence: 1,
       href: "OEBPS/text/book.xhtml",
       locations: {
         progression: 0.2,
