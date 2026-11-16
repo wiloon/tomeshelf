@@ -499,3 +499,50 @@ test("pages capture anchors on the first visible character in the spread", () =>
   expect(captured.text?.highlight?.startsWith("Right")).toBe(true);
   expect(captured.locations.progression).toBe(0);
 });
+
+test("an invalid or non-block selector counts as a missing block", () => {
+  const content = article(`<p id="a">Only progression.</p>`);
+  layout(content, { "tomeshelf-content": [0, 1000], a: [0, 40] });
+  for (const cssSelector of ["p[[", "p", "*", 'p [data-tomeshelf-block="1"]']) {
+    const resolved = resolveLocator(content, {
+      href: place.readingOrder[0].href,
+      locations: { progression: 0.4, cssSelector, characterOffset: 0 },
+    });
+    expect(resolved).toEqual({ kind: "progression", progression: 0.4 });
+  }
+});
+
+test("in the pages layout a repeated quote is tied by spread progression", () => {
+  const content = article(`<p id="a">Echo line.</p><p id="b">Echo line.</p>`);
+  Object.defineProperty(content, "scrollWidth", {
+    value: 2000,
+    configurable: true,
+  });
+  Object.defineProperty(content, "clientWidth", {
+    value: 1000,
+    configurable: true,
+  });
+  content.getBoundingClientRect = () =>
+    DOMRect.fromRect({ x: 0, y: 0, width: 1000, height: 600 });
+  previousRangeBox = rangeProto.getBoundingClientRect;
+  rangeProto.getBoundingClientRect = function (this: Range) {
+    const left = this.startContainer.parentElement?.id === "b" ? 1200 : 100;
+    return DOMRect.fromRect({ x: left, y: 0, width: 10, height: 10 });
+  };
+  const prepareProgression = vi.fn();
+  const resolved = resolveLocator(
+    content,
+    {
+      href: place.readingOrder[0].href,
+      locations: { progression: 0.9 },
+      text: { before: "", highlight: "Echo line.", after: "" },
+    },
+    "pages",
+    { prepareProgression, showCharacter: vi.fn(), showProgression: vi.fn() },
+  );
+  expect(prepareProgression).toHaveBeenCalled();
+  expect(resolved?.kind).toBe("character");
+  if (resolved?.kind === "character") {
+    expect(resolved.node.parentElement?.id).toBe("b");
+  }
+});

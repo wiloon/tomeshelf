@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -28,32 +29,46 @@ const PositionQueueContext = createContext<PositionQueue | null>(null);
 // survives the reader unmounting; the library refetches once it settles.
 export function PositionQueueProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
+  // Set around hide/pagehide sends, which happen synchronously inside the
+  // queue call, so those requests are keepalive whatever visibilityState says.
+  const [keepalive] = useState({ on: false });
   const [queue] = useState<SaveQueue<PositionSave>>(() =>
     createSaveQueue<PositionSave>({
       delay: debounceMs,
       send: (value) =>
         savePosition(value, {
-          keepalive: document.visibilityState === "hidden",
+          keepalive: keepalive.on || document.visibilityState === "hidden",
         }).then(() => {
           void queryClient.invalidateQueries({ queryKey: ["books"] });
         }),
     }),
   );
+  const withKeepalive = useCallback(
+    (fn: () => void) => {
+      keepalive.on = true;
+      try {
+        fn();
+      } finally {
+        keepalive.on = false;
+      }
+    },
+    [keepalive],
+  );
 
   useEffect(() => {
     const onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        queue.hidden();
+        withKeepalive(() => queue.hidden());
       }
     };
-    const onPageHide = () => queue.pagehide();
+    const onPageHide = () => withKeepalive(() => queue.pagehide());
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pagehide", onPageHide);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pagehide", onPageHide);
     };
-  }, [queue]);
+  }, [queue, withKeepalive]);
 
   const api = useMemo<PositionQueue>(
     () => ({
@@ -61,13 +76,13 @@ export function PositionQueueProvider({ children }: { children: ReactNode }) {
         queue.change({ bookId, locator });
       },
       hidden() {
-        queue.hidden();
+        withKeepalive(() => queue.hidden());
       },
       pagehide() {
-        queue.pagehide();
+        withKeepalive(() => queue.pagehide());
       },
     }),
-    [queue],
+    [queue, withKeepalive],
   );
 
   return (

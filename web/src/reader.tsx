@@ -255,14 +255,14 @@ function BookDocument({
         return;
       }
       if (href.startsWith("#")) {
-        setNavigationIntent("move");
+        setNavigationIntent("move", href);
         return;
       }
       if (!href.startsWith("/books/")) {
         return;
       }
       event.preventDefault();
-      setNavigationIntent("move");
+      setNavigationIntent("move", href);
       void navigate({ href });
     };
     article.addEventListener("click", onClick);
@@ -306,7 +306,7 @@ function TableOfContents({
     }
     event.preventDefault();
     ref.current?.close();
-    setNavigationIntent("move");
+    setNavigationIntent("move", href);
     void navigate({ href });
   };
 

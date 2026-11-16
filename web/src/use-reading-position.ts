@@ -48,10 +48,15 @@ export function useReadingPosition({
   bookIdRef.current = bookId;
   pagesRestoreRef.current = pagesRestore;
 
+  const suppressUntil = useRef(0);
+  const settledLeft = useRef<number | null>(null);
+  const settleTimer = useRef<number | undefined>(undefined);
+
   const markProgrammatic = useCallback(() => {
     ignoreScrollY.current = window.scrollY;
     const article = contentEl();
     ignoreScrollLeft.current = article ? article.scrollLeft : null;
+    settledLeft.current = article ? article.scrollLeft : null;
   }, []);
 
   const capture = useCallback((): Locator | null => {
@@ -76,6 +81,7 @@ export function useReadingPosition({
 
   const recordMove = useCallback(() => {
     const locator = capture();
+    settledLeft.current = contentEl()?.scrollLeft ?? null;
     if (locator) {
       schedule(locator);
     }
@@ -87,7 +93,12 @@ export function useReadingPosition({
       restoring.current = true;
       moved.current = false;
       activeLocator.current = locator;
-      const resolved = resolveLocator(content, locator);
+      const resolved = resolveLocator(
+        content,
+        locator,
+        layoutRef.current,
+        pagesRestoreRef.current() ?? undefined,
+      );
       if (resolved) {
         applyResolvedPosition(
           content,
@@ -127,7 +138,12 @@ export function useReadingPosition({
       return false;
     }
     restoring.current = true;
-    const resolved = resolveLocator(content, locator);
+    const resolved = resolveLocator(
+      content,
+      locator,
+      layoutRef.current,
+      pagesRestoreRef.current() ?? undefined,
+    );
     if (resolved) {
       applyResolvedPosition(
         content,
@@ -183,7 +199,7 @@ export function useReadingPosition({
     }
 
     const onScroll = () => {
-      if (restoring.current) {
+      if (restoring.current || performance.now() < suppressUntil.current) {
         return;
       }
       if (
@@ -205,7 +221,7 @@ export function useReadingPosition({
         return;
       }
       const article = event.target;
-      if (!(article instanceof HTMLElement)) {
+      if (!(article instanceof HTMLElement) || article.id !== contentId) {
         return;
       }
       if (
@@ -216,51 +232,51 @@ export function useReadingPosition({
         return;
       }
       ignoreScrollLeft.current = null;
-      // Alignment snaps are ignored via pages-controller's snapping flag
-      // (onMove is only fired for real turns). Article scroll alone is not
-      // a move in pages layout.
-    };
-
-    const flushPending = (mode: "hidden" | "pagehide") => {
-      if (!moved.current) {
+      if (performance.now() < suppressUntil.current) {
         return;
       }
-      const locator = capture() ?? activeLocator.current;
-      if (locator) {
-        queue.change(bookIdRef.current, locator);
-      }
-      if (mode === "hidden") {
-        queue.hidden();
-      } else {
-        queue.pagehide();
-      }
+      // A scroll the reader did not make itself (the user, an extension's
+      // scrollIntoView) is a move. Capture after the controller's snap
+      // (50 ms) has settled the spread.
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = window.setTimeout(() => {
+        if (
+          restoring.current ||
+          performance.now() < suppressUntil.current ||
+          article.scrollLeft === settledLeft.current
+        ) {
+          return;
+        }
+        recordMove();
+      }, 120);
     };
 
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") {
-        flushPending("hidden");
-      }
-    };
-    const onPageHide = () => flushPending("pagehide");
-
+    // Hide and pagehide are handled by the app-level queue, which sends only
+    // what is still pending; nothing is re-captured here.
+    // The article may not exist yet (the document is still loading), and
+    // scroll does not bubble, so listen in the capture phase.
     window.addEventListener("scroll", onScroll, { passive: true });
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("pagehide", onPageHide);
-    const article = contentEl();
-    article?.addEventListener("scroll", onArticleScroll, { passive: true });
+    document.addEventListener("scroll", onArticleScroll, {
+      passive: true,
+      capture: true,
+    });
     return () => {
       window.removeEventListener("scroll", onScroll);
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("pagehide", onPageHide);
-      article?.removeEventListener("scroll", onArticleScroll);
+      document.removeEventListener("scroll", onArticleScroll, {
+        capture: true,
+      });
+      window.clearTimeout(settleTimer.current);
     };
-  }, [enabled, queue, capture, recordMove]);
+  }, [enabled, recordMove]);
 
   useEffect(() => {
     if (!enabled) {
       return;
     }
     const onResize = () => {
+      // Re-layout never counts as a move, before or after the first one.
+      suppressUntil.current = performance.now() + 400;
+      window.clearTimeout(settleTimer.current);
       if (moved.current) {
         return;
       }

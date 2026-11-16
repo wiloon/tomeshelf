@@ -29,6 +29,7 @@ export type ResolvedPosition =
 const highlightMax = 64;
 const contextMax = 32;
 const blockSelectorRe = /\[data-tomeshelf-block="(\d+)"\]/;
+const exactBlockSelectorRe = /^\[data-tomeshelf-block="\d+"\]$/;
 
 function* textNodes(root: Node): Generator<Text> {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -277,8 +278,20 @@ function findQuoteOccurrences(
 function progressionForOccurrence(
   content: HTMLElement,
   occ: Occurrence,
+  layout: Layout,
 ): number {
   const box = charBox(occ.node, occ.offset);
+  if (layout === "pages") {
+    // The spread offset that holds the character, as a share of the range
+    // (the final spread is already extended).
+    const range = content.scrollWidth - content.clientWidth;
+    if (range <= 0) {
+      return 1;
+    }
+    const x =
+      content.scrollLeft + box.left - content.getBoundingClientRect().left;
+    return Math.min(1, Math.max(0, x / range));
+  }
   const desired = window.scrollY + box.top;
   const maxScroll = Math.max(
     0,
@@ -292,6 +305,7 @@ function pickOccurrence(
   content: HTMLElement,
   occurrences: Occurrence[],
   locator: Locator,
+  layout: Layout,
 ): Occurrence | null {
   if (occurrences.length === 0) {
     return null;
@@ -312,7 +326,7 @@ function pickOccurrence(
         : n === null
           ? Number.POSITIVE_INFINITY
           : Math.abs(n - storedBlock);
-    const prog = progressionForOccurrence(content, occ);
+    const prog = progressionForOccurrence(content, occ, layout);
     const progDist = Math.abs(prog - storedProgression);
     return { occ, blockDist, progDist, index };
   });
@@ -332,6 +346,7 @@ function pickOccurrence(
 function resolveQuote(
   content: HTMLElement,
   locator: Locator,
+  layout: Layout,
 ): ResolvedPosition | null {
   if (!locator.text?.highlight) {
     return null;
@@ -340,6 +355,7 @@ function resolveQuote(
     content,
     findQuoteOccurrences(content, locator.text),
     locator,
+    layout,
   );
   if (!picked) {
     return null;
@@ -356,7 +372,13 @@ function resolveBlock(
     return null;
   }
   // Scoped to #tomeshelf-content: content is that article.
-  const el = content.querySelector(cssSelector);
+  // Parse the number and query it ourselves: a stored selector is arbitrary
+  // text, and anything but a block selector counts as a missing block.
+  const n = exactBlockSelectorRe.test(cssSelector)
+    ? parseBlockNumber(cssSelector)
+    : null;
+  const el =
+    n === null ? null : content.querySelector(`[data-tomeshelf-block="${n}"]`);
   if (!el) {
     return null;
   }
@@ -370,9 +392,15 @@ function resolveBlock(
 export function resolveLocator(
   content: HTMLElement,
   locator: Locator,
+  layout: Layout = "scroll",
+  pages?: PagesRestore,
 ): ResolvedPosition | null {
+  if (layout === "pages") {
+    // Measure occurrences against the extended final spread.
+    pages?.prepareProgression();
+  }
   return (
-    resolveQuote(content, locator) ??
+    resolveQuote(content, locator, layout) ??
     resolveBlock(content, locator) ??
     (locator.locations.progression !== undefined
       ? {
@@ -427,7 +455,7 @@ export function restoreLocator(
   layout: Layout,
   pages?: PagesRestore,
 ): ResolvedPosition | null {
-  const resolved = resolveLocator(content, locator);
+  const resolved = resolveLocator(content, locator, layout, pages);
   if (resolved) {
     applyResolvedPosition(content, resolved, layout, pages);
   }
