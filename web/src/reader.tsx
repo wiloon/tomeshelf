@@ -436,7 +436,7 @@ function ScrollOrderNav({
   id: string;
   n: number;
   length: number;
-  onNavigate: () => void;
+  onNavigate: (href: string) => void;
 }) {
   return (
     <nav
@@ -448,7 +448,7 @@ function ScrollOrderNav({
           to="/books/$id/read/$n"
           params={{ id, n: String(n - 1) }}
           className="underline"
-          onClick={onNavigate}
+          onClick={(event) => onNavigate(event.currentTarget.href)}
         >
           Previous
         </Link>
@@ -460,7 +460,7 @@ function ScrollOrderNav({
           to="/books/$id/read/$n"
           params={{ id, n: String(n + 1) }}
           className="underline"
-          onClick={onNavigate}
+          onClick={(event) => onNavigate(event.currentTarget.href)}
         >
           Next
         </Link>
@@ -594,14 +594,20 @@ export function ReaderPage() {
   const onExhausted = (direction: Turn) => {
     if (direction === "next" && n < readingOrder.length) {
       setPagesArrive("start");
-      setNavigationIntent("move");
+      setNavigationIntent(
+        "move",
+        `/books/${encodeURIComponent(id)}/read/${n + 1}`,
+      );
       void navigate({
         to: "/books/$id/read/$n",
         params: { id, n: String(n + 1) },
       });
     } else if (direction === "previous" && n > 1) {
       setPagesArrive("end");
-      setNavigationIntent("move");
+      setNavigationIntent(
+        "move",
+        `/books/${encodeURIComponent(id)}/read/${n - 1}`,
+      );
       void navigate({
         to: "/books/$id/read/$n",
         params: { id, n: String(n - 1) },
@@ -711,7 +717,7 @@ export function ReaderPage() {
           id={id}
           n={n}
           length={readingOrder.length}
-          onNavigate={() => setNavigationIntent("move")}
+          onNavigate={(href) => setNavigationIntent("move", href)}
         />
       )}
       <TableOfContents

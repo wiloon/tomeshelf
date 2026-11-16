@@ -621,3 +621,23 @@ test("a position 404 opens document 1 with no message; a 5xx shows the message",
     page.getByText("The reading position could not be loaded."),
   ).toBeVisible();
 });
+
+test("opening Next in another tab then switching layout saves nothing", async ({
+  page,
+}) => {
+  await setUp(page, "scroll");
+  await importChapters(page);
+  await openFromLibrary(page);
+  const next = page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("link", { name: "Next" });
+  const puts = positionPuts(page);
+  await next.dispatchEvent("click", { ctrlKey: true });
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page
+    .getByRole("dialog", { name: "Reading settings" })
+    .getByRole("radio", { name: "Pages" })
+    .check();
+  await page.waitForTimeout(1200);
+  expect(puts).toHaveLength(0);
+});

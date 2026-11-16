@@ -113,6 +113,7 @@ test("a spread is one page on a phone and on both sides of the two-page threshol
 
   await page.setViewportSize({ width: 375, height: 800 });
   await page.goto(`/books/${id}/read/1`);
+  await expect(article(page)).toContainText("Document One");
   let g = await pagesGeometry(page);
   expect(g?.articleWidth).toBeLessThanOrEqual(375);
   expect(g?.columnWidth).toBeGreaterThan(300);
