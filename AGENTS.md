@@ -1,6 +1,8 @@
 # AI Agents
 
-tomeshelf is a self-hosted EPUB reader. It renders book text into the main document, with no iframe and no shadow DOM, so word-lookup extensions such as ENX work on it (ADR-0001). Every change keeps the book text there. The DOM contract (ADR-0006) is a public API: changing it is a breaking change.
+tomeshelf is an EPUB reader. It renders book text into the main document, with no iframe and no shadow DOM, so word-lookup extensions such as ENX work on it (ADR-0001). Every change keeps the book text there. The DOM contract (ADR-0006) is a public API: changing it is a breaking change.
+
+It runs as a private instance, which stores books on its server, or a public instance, whose server never receives a book's content: no bytes, title, file name or text (ADR-0011). Every change keeps a public instance's book content in the user's browser.
 
 ## Taking an issue
 

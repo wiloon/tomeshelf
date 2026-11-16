@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Private and public instances; a public instance never receives a book's content

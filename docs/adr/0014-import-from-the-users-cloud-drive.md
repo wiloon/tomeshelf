@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Import from the user's cloud drive, downloaded by the browser

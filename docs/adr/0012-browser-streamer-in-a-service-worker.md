@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # A browser Streamer in TypeScript, served by a Service Worker

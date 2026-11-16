@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Public instance: Clerk accounts, and reading positions without book text
