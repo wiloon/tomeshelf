@@ -17,12 +17,29 @@ function place(href: string): string {
   return `${safeDecode(url.pathname)}${safeDecode(url.hash)}`;
 }
 
+function placePath(href: string): string {
+  return safeDecode(new URL(href, window.location.href).pathname);
+}
+
 // Marks the next placement as arriving through an explicit navigation to
 // `href`. The mark is dropped when the navigation goes nowhere (the address
 // already is `href`) and when the placement that takes it is at another
-// address, so a later re-layout never reads it as an arrival.
-export function setNavigationIntent(kind: NavigationKind, href?: string) {
-  if (href !== undefined && place(href) === place(window.location.href)) {
+// document, so a later re-layout never reads it as an arrival. Pathname
+// alone decides "another document": a cross-document link's hash may land
+// after the first placement run.
+//
+// `force` keeps the mark when the router has already updated the address
+// before the click handler runs (article links in capture/bubble order).
+export function setNavigationIntent(
+  kind: NavigationKind,
+  href?: string,
+  opts?: { force?: boolean },
+) {
+  if (
+    !opts?.force &&
+    href !== undefined &&
+    place(href) === place(window.location.href)
+  ) {
     intent = "address";
     target = null;
     return;
@@ -32,10 +49,14 @@ export function setNavigationIntent(kind: NavigationKind, href?: string) {
 }
 
 export function takeNavigationIntent(): NavigationKind {
-  const kind =
-    target !== null && target !== place(window.location.href)
-      ? "address"
-      : intent;
+  // Placement on another document leaves the mark for the real arrival.
+  if (
+    target !== null &&
+    placePath(target) !== placePath(window.location.href)
+  ) {
+    return "address";
+  }
+  const kind = intent;
   intent = "address";
   target = null;
   return kind;

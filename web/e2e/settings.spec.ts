@@ -997,6 +997,54 @@ test("a failed save shows Not saved with Retry, and quick changes end with the l
   await expect(article(page)).toHaveCSS("font-size", "23px");
 });
 
+test("a failed settings save is resent on hide and on pagehide", async ({
+  page,
+}) => {
+  const id = await importSemantics(page);
+  await openDocument(page, id, documents.common);
+  let failing = true;
+  const puts: Request[] = [];
+  await page.route("**/api/settings", async (route) => {
+    if (route.request().method() !== "PUT") {
+      await route.fallback();
+      return;
+    }
+    puts.push(route.request());
+    if (failing) {
+      await route.fulfill({
+        status: 500,
+        json: { error: "internal server error" },
+      });
+      return;
+    }
+    await route.continue();
+  });
+  const panel = await openSettings(page);
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect(panel.getByText("Not saved")).toBeVisible();
+  await expect.poll(() => puts.length).toBe(1);
+
+  failing = false;
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect.poll(() => puts.length).toBe(2);
+  expect(puts[1]?.postDataJSON().fontSize).toBe(19);
+
+  failing = true;
+  await panel.getByRole("button", { name: "Increase font size" }).click();
+  await expect(panel.getByText("Not saved")).toBeVisible();
+  await expect.poll(() => puts.length).toBe(3);
+  failing = false;
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  await expect.poll(() => puts.length).toBe(4);
+  expect(puts[3]?.postDataJSON().fontSize).toBe(20);
+});
+
 test("when the saved settings cannot be loaded, the defaults apply, the panel says so, and a change is still saved", async ({
   page,
 }) => {

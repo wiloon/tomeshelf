@@ -64,15 +64,23 @@ function Problem({ text }: { text: string }) {
 
 // A plain left click, which the app may take over; any other click keeps the
 // browser's own behaviour, such as opening a new tab.
-function isPlainClick(event: MouseEvent | ReactMouseEvent): boolean {
+function isUnmodifiedClick(event: MouseEvent | ReactMouseEvent): boolean {
   return !(
-    event.defaultPrevented ||
     event.button !== 0 ||
     event.metaKey ||
     event.ctrlKey ||
     event.shiftKey ||
     event.altKey
   );
+}
+
+function readingNFromLocation(): number | null {
+  const match = window.location.pathname.match(/\/read\/(\d+)\/?$/);
+  return match ? Number(match[1]) : null;
+}
+
+function isPlainClick(event: MouseEvent | ReactMouseEvent): boolean {
+  return isUnmodifiedClick(event) && !event.defaultPrevented;
 }
 
 function decodeFragment(hash: string): string {
@@ -151,7 +159,14 @@ function BookDocument({
     renderDocument(article, html, { bookId, readingOrder, n });
 
     const pending = restoreRef.current;
-    const kind = pending ? "restore" : takeNavigationIntent();
+    // The router may update the URL before this document's route params; only
+    // consume a move intent when the address already names this document.
+    const atThisDocument = readingNFromLocation() === n;
+    const kind = pending
+      ? "restore"
+      : atThisDocument
+        ? takeNavigationIntent()
+        : "address";
 
     if (layout !== "pages") {
       if (pending) {
@@ -247,14 +262,16 @@ function BookDocument({
   ]);
 
   // Links to other documents (or fragments) move within the app and count as
-  // an explicit navigation arrival (ADR-0005).
+  // an explicit navigation arrival (ADR-0005). Capture phase runs before the
+  // router claims the click, so the intent is recorded while the address is
+  // still the departing document.
   useEffect(() => {
     const article = ref.current;
     if (!article) {
       return;
     }
     const onClick = (event: MouseEvent) => {
-      if (!isPlainClick(event)) {
+      if (!isUnmodifiedClick(event)) {
         return;
       }
       const link = (event.target as Element).closest("a");
@@ -263,18 +280,20 @@ function BookDocument({
         return;
       }
       if (href.startsWith("#")) {
-        setNavigationIntent("move", href);
+        setNavigationIntent("move", href, { force: true });
         return;
       }
       if (!href.startsWith("/books/")) {
         return;
       }
-      event.preventDefault();
-      setNavigationIntent("move", href);
-      void navigate({ href });
+      setNavigationIntent("move", href, { force: true });
+      if (!event.defaultPrevented) {
+        event.preventDefault();
+        void navigate({ href });
+      }
     };
-    article.addEventListener("click", onClick);
-    return () => article.removeEventListener("click", onClick);
+    article.addEventListener("click", onClick, true);
+    return () => article.removeEventListener("click", onClick, true);
   }, [navigate]);
 
   return <article id={contentId} ref={ref} />;
