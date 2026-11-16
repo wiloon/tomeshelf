@@ -116,6 +116,7 @@ function BookDocument({
   withoutCapture,
   markProgrammatic,
   noteArrival,
+  flushDeparting,
   onMove,
   onEdges,
   onExhausted,
@@ -129,6 +130,7 @@ function BookDocument({
   withoutCapture: (fn: () => void) => void;
   markProgrammatic: () => void;
   noteArrival: (kind: "restore" | "address" | "move") => void;
+  flushDeparting: () => void;
   onMove: () => void;
   onEdges: (edges: { start: boolean; end: boolean }) => void;
   onExhausted: (direction: Turn) => void;
@@ -279,13 +281,23 @@ function BookDocument({
       if (link?.target || !href) {
         return;
       }
+      const target = new URL(href, window.location.href);
+      if (
+        target.pathname === window.location.pathname &&
+        target.hash === window.location.hash
+      ) {
+        event.preventDefault();
+        return;
+      }
       if (href.startsWith("#")) {
+        flushDeparting();
         setNavigationIntent("move", href, { force: true });
         return;
       }
       if (!href.startsWith("/books/")) {
         return;
       }
+      flushDeparting();
       setNavigationIntent("move", href, { force: true });
       if (!event.defaultPrevented) {
         event.preventDefault();
@@ -294,7 +306,7 @@ function BookDocument({
     };
     article.addEventListener("click", onClick, true);
     return () => article.removeEventListener("click", onClick, true);
-  }, [navigate]);
+  }, [navigate, flushDeparting]);
 
   return <article id={contentId} ref={ref} />;
 }
@@ -305,12 +317,14 @@ function BookDocument({
 function TableOfContents({
   open,
   onClose,
+  flushDeparting,
   bookId,
   readingOrder,
   toc,
 }: {
   open: boolean;
   onClose: () => void;
+  flushDeparting: () => void;
   bookId: string;
   readingOrder: ManifestLink[];
   toc: ManifestLink[];
@@ -333,6 +347,7 @@ function TableOfContents({
     }
     event.preventDefault();
     ref.current?.close();
+    flushDeparting();
     setNavigationIntent("move", href);
     void navigate({ href });
   };
@@ -620,6 +635,7 @@ export function ReaderPage() {
 
   const onExhausted = (direction: Turn) => {
     if (direction === "next" && n < readingOrder.length) {
+      flushDeparting();
       setPagesArrive("start");
       setNavigationIntent(
         "move",
@@ -630,6 +646,7 @@ export function ReaderPage() {
         params: { id, n: String(n + 1) },
       });
     } else if (direction === "previous" && n > 1) {
+      flushDeparting();
       setPagesArrive("end");
       setNavigationIntent(
         "move",
@@ -727,6 +744,7 @@ export function ReaderPage() {
           withoutCapture={withoutCapture}
           markProgrammatic={markProgrammatic}
           noteArrival={noteArrival}
+          flushDeparting={flushDeparting}
           onMove={recordMove}
           onEdges={setEdges}
           onExhausted={onExhausted}
@@ -744,12 +762,16 @@ export function ReaderPage() {
           id={id}
           n={n}
           length={readingOrder.length}
-          onNavigate={(href) => setNavigationIntent("move", href)}
+          onNavigate={(href) => {
+            flushDeparting();
+            setNavigationIntent("move", href);
+          }}
         />
       )}
       <TableOfContents
         open={contentsOpen}
         onClose={() => setContentsOpen(false)}
+        flushDeparting={flushDeparting}
         bookId={id}
         readingOrder={manifest.data.readingOrder}
         toc={manifest.data.toc ?? []}

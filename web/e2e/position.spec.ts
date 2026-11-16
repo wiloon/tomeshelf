@@ -1251,3 +1251,91 @@ test("a document address in pages never restores; reload and contents stay put",
     )
     .toBe(0);
 });
+
+test("a cached document navigation flushes the departure before saving the arrival", async ({
+  page,
+}) => {
+  await setUp(page, "scroll");
+  await importReader(page);
+  await page.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
+  await expect(article(page)).toContainText("Document One");
+  await article(page).locator("a#to-two").click();
+  await expect(article(page)).toContainText("Document Two");
+  await page.goBack();
+  await expect(article(page)).toContainText("Document One");
+  await page.waitForTimeout(800);
+  const puts = positionPuts(page);
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(150);
+  await article(page).locator("a#to-two").click();
+  await expect(article(page)).toContainText("Document Two");
+  await expect.poll(() => puts.length).toBeGreaterThanOrEqual(2);
+  const hrefs = puts.map(
+    (req) => (req.postDataJSON() as { href: string }).href,
+  );
+  expect(hrefs[0]).toMatch(/one\.xhtml/);
+  expect(hrefs[1]).toMatch(/two\.xhtml/);
+});
+
+test.fixme("clicking the current fragment then changing layout does not save", async ({
+  page,
+}) => {
+  await setUp(page, "scroll");
+  await importReader(page);
+  await page.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
+  const id = new URL(page.url()).pathname.split("/")[2];
+  await page.goto(`/books/${id}/read/2#second-target`);
+  await expect(article(page)).toContainText("Document Two");
+  await page.waitForTimeout(600);
+  await article(page).evaluate((el) => {
+    const link = document.createElement("a");
+    link.href = "#second-target";
+    link.textContent = "Current fragment";
+    el.querySelector("#second-target")?.append(link);
+  });
+  const puts = positionPuts(page);
+  await article(page)
+    .getByRole("link", { name: "Current fragment" })
+    .dispatchEvent("click", { button: 0 });
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("radio", { name: "Pages" }).check();
+  await page.waitForTimeout(900);
+  expect(puts).toHaveLength(0);
+});
+
+test("an image-only odd-page document saves and restores its last spread", async ({
+  page,
+}) => {
+  await setUp(page, "pages");
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "image-only.epub"));
+  await page.getByRole("link", { name: /A Hand-Made Image Book/ }).click();
+  await expect(article(page).locator("img")).toHaveCount(5);
+  const imagePages = await article(page)
+    .locator("img")
+    .evaluateAll((images) =>
+      images.map((image) => Math.round((image as HTMLElement).offsetLeft)),
+    );
+  expect(new Set(imagePages).size).toBe(5);
+  const id = new URL(page.url()).pathname.split("/")[2];
+  const puts = positionPuts(page);
+  const next = page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("button", { name: "Next" });
+  await next.click();
+  await next.click();
+  await expect.poll(() => puts.length).toBeGreaterThan(0);
+  const saved = puts.at(-1)?.postDataJSON() as {
+    locations: { progression: number };
+    text?: unknown;
+  };
+  expect(saved.locations.progression).toBeGreaterThan(0);
+  expect(saved.text).toBeUndefined();
+  await page.goto(`/books/${id}/read`);
+  await expect(article(page).locator("img")).toHaveCount(5);
+  await expect
+    .poll(() => article(page).evaluate((el) => el.scrollLeft))
+    .toBeGreaterThan(0);
+});
