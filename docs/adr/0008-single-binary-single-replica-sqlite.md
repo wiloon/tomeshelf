@@ -14,3 +14,7 @@ Stack: Go with `net/http` routing, `log/slog`, sqlc on `modernc.org/sqlite` and 
 
 - v1 has one user per instance, with a built-in username and password. Tables carry `user_id`, so more users can be added without a schema rewrite. Trusted reverse-proxy headers and OIDC are later upgrades.
 - tomeshelf is open source for people to self-host. The project does not run a public instance: hosting other people's uploads, even when restricted to public-domain books, carries copyright risk that a notice-and-takedown policy cannot remove.
+
+## Revisions
+
+- 2026-11-16, ADR-0011: a public instance is now possible, because on one the server never receives a book's content. The reason above still rules out hosting uploads, which a public instance does not do. One replica and SQLite hold for both kinds of instance.

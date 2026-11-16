@@ -1,6 +1,6 @@
 # tomeshelf
 
-A self-hosted reader for EPUB books, built so that word-lookup extensions such as ENX can work on the book text.
+A reader for EPUB books, self-hosted or public, built so that word-lookup extensions such as ENX can work on the book text.
 
 ## Library
 
@@ -9,12 +9,26 @@ One EPUB publication imported into the library, identified by the content of its
 _Avoid_: Ebook file, title, publication (except when quoting Readium)
 
 **Library**:
-All the books one tomeshelf instance holds.
+The books a user has imported: held by the server on a private instance, and by the user's own browser on a public instance.
 _Avoid_: Collection, shelf
 
 **Import**:
-Adding a book to the library from an EPUB file the user supplies.
+Adding a book to the library from an EPUB file the user supplies, from their computer or their cloud drive.
 _Avoid_: Upload (the transport, not the act), ingest
+
+**Cloud drive**:
+The user's own file storage at a provider such as Google Drive or OneDrive, which a public instance's browser app reads books from on the user's behalf.
+_Avoid_: Cloud storage, netdisk, sync
+
+## Instances
+
+**Private instance**:
+A tomeshelf instance for one household or person, which keeps imported books on its own server.
+_Avoid_: HomeLab mode, self-hosted mode
+
+**Public instance**:
+A tomeshelf instance open to anyone, whose server never receives a book's content; each user's books stay in their own browser.
+_Avoid_: Cloud mode, SaaS, online mode
 
 ## Reading
 
@@ -53,7 +67,7 @@ _Avoid_: CFI, anchor
 ## Architecture
 
 **Streamer**:
-The server part that understands the EPUB package and hands out the book's description and its files.
+The part that understands the EPUB package and hands out the book's description and its files: on the server in a private instance, in the user's browser in a public instance.
 _Avoid_: Parser, backend
 
 **Navigator**:
