@@ -3,7 +3,12 @@ import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 import { AccountBar } from "./auth";
 
-type Book = { id: number; title: string; authors: string[] };
+type Book = {
+  id: number;
+  title: string;
+  authors: string[];
+  progress?: number;
+};
 
 type Outcome = { ok: boolean; text: string };
 
@@ -228,8 +233,8 @@ export function LibraryPage() {
             {books.data.map((book) => (
               <li key={book.id} className="flex min-w-0 flex-col gap-1">
                 <Link
-                  to="/books/$id/read/$n"
-                  params={{ id: String(book.id), n: "1" }}
+                  to="/books/$id/read"
+                  params={{ id: String(book.id) }}
                   className="flex flex-col gap-1"
                 >
                   <Cover book={book} />
@@ -240,6 +245,11 @@ export function LibraryPage() {
                     <span className="text-sm text-stone-600 wrap-anywhere">
                       {" "}
                       by {book.authors.join(", ")}
+                    </span>
+                  )}
+                  {book.progress !== undefined && (
+                    <span className="text-sm text-stone-600">
+                      {book.progress}%
                     </span>
                   )}
                 </Link>

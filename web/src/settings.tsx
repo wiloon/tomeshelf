@@ -57,6 +57,8 @@ type SettingsState = {
   // setting meanwhile or a change is not saved yet. Returns a function that
   // ignores the answer.
   load: () => () => void;
+  // True once the initial load has settled (success or failure).
+  loadSettled: boolean;
   loadFailed: boolean;
   saveStatus: SaveStatus;
   retry: () => void;
@@ -108,6 +110,7 @@ function SettingsSession({
   const [settings, setLocal] = useState(defaultSettings);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
   const [loadFailed, setLoadFailed] = useState(false);
+  const [loadSettled, setLoadSettled] = useState(false);
   const changes = useRef(0);
   const [queue] = useState(() =>
     createSaveQueue<ReadingSettings>({
@@ -158,10 +161,12 @@ function SettingsSession({
         ) {
           setLocal(saved);
         }
+        setLoadSettled(true);
       },
       () => {
         if (!ignored) {
           setLoadFailed(true);
+          setLoadSettled(true);
         }
       },
     );
@@ -176,6 +181,7 @@ function SettingsSession({
         settings,
         setSettings,
         load,
+        loadSettled,
         loadFailed,
         saveStatus,
         retry: queue.retry,

@@ -17,6 +17,10 @@ export type PagesController = {
   turn: (direction: Turn) => boolean;
   atStart: () => boolean;
   atEnd: () => boolean;
+  // Ensures the final spread is extended so progression is stable (ADR-0005).
+  prepareProgression: () => void;
+  showCharacter: (node: Text, offset: number) => void;
+  showProgression: (progression: number) => void;
 };
 
 export type PagesControllerOptions = {
@@ -27,6 +31,8 @@ export type PagesControllerOptions = {
   textWidthRem: () => number;
   // Called when a turn would leave the document.
   onExhausted: (direction: Turn) => void;
+  // Called after a real spread turn (not alignment, restore or re-layout).
+  onMove?: () => void;
 };
 
 const wheelQuietMs = 300;
@@ -148,9 +154,11 @@ function scrollCharIntoSpread(
 export function attachPagesController(
   options: PagesControllerOptions,
 ): PagesController {
-  const { article, availableWidth, textWidthRem, onExhausted } = options;
+  const { article, availableWidth, textWidthRem, onExhausted, onMove } =
+    options;
   const burst = wheelBurst;
   let step = 0;
+  let measuredWidth = 0;
   let twoPages = false;
   let snapping = false;
   let touchStartX: number | null = null;
@@ -158,10 +166,20 @@ export function attachPagesController(
   let touchOwner: "page" | "nested" | null = null;
 
   const measure = () => {
-    const metrics = applyMetrics(article, availableWidth(), textWidthRem());
+    const width = availableWidth();
+    const metrics = applyMetrics(article, width, textWidthRem());
     step = spreadStep(metrics);
+    measuredWidth = width;
     twoPages = metrics.pagesPerSpread === 2;
     return metrics;
+  };
+
+  // Remeasure when the article's width has changed but a resize event has not
+  // been delivered yet (common right after setViewportSize in tests).
+  const ensureMeasured = () => {
+    if (step <= 0 || availableWidth() !== measuredWidth) {
+      measure();
+    }
   };
 
   const atStart = () => article.scrollLeft <= 1;
@@ -181,9 +199,7 @@ export function attachPagesController(
   }
 
   const go = (direction: Turn): boolean => {
-    if (step <= 0) {
-      measure();
-    }
+    ensureMeasured();
     extendFinalSpread();
     const next =
       direction === "next"
@@ -204,11 +220,14 @@ export function attachPagesController(
     );
     queueMicrotask(() => {
       snapping = false;
+      // After the snap, so capture measures the settled spread (ADR-0005).
+      onMove?.();
     });
     return true;
   };
 
   const snap = () => {
+    ensureMeasured();
     if (step <= 0) {
       return;
     }
@@ -348,6 +367,35 @@ export function attachPagesController(
     turn: go,
     atStart,
     atEnd,
+    prepareProgression: () => {
+      ensureMeasured();
+      extendFinalSpread();
+    },
+    showCharacter: (node, offset) => {
+      ensureMeasured();
+      extendFinalSpread();
+      snapping = true;
+      scrollCharIntoSpread(article, step, { node, offset });
+      queueMicrotask(() => {
+        snapping = false;
+      });
+    },
+    showProgression: (progression) => {
+      ensureMeasured();
+      extendFinalSpread();
+      const range = maxScroll(article);
+      snapping = true;
+      article.scrollLeft =
+        range <= 0
+          ? 0
+          : Math.min(
+              range,
+              Math.max(0, snapSpreadOffset(progression * range, step)),
+            );
+      queueMicrotask(() => {
+        snapping = false;
+      });
+    },
   };
 }
 
