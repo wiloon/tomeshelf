@@ -20,3 +20,4 @@ Each user's library has its own metadata row per book, but users who import the 
 
 - 2026-11-14, issue #5: added the `/data/tmp/` staging area and the file-then-row commit order, so failed and concurrent imports are defined.
 - 2026-11-14, issue #12: added book deletion: row first, shared originals and cache removed only when unreferenced, and a per-SHA-256 lock shared with import and thumbnail cache writes.
+- 2026-11-16, ADR-0011: this ADR applies to private instances. A public instance stores no books on the server; each user's browser holds their books.

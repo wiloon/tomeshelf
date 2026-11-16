@@ -18,3 +18,7 @@ People who already run an identity provider (Authelia, Authentik, Pocket ID, Key
 
 - The account code tomeshelf owns stays small: users, sessions, first-run setup, and later user management by the admin. It uses established pieces: argon2id from `golang.org/x/crypto`, server-side sessions stored in SQLite, the standard library's `http.CrossOriginProtection` against CSRF, and later `coreos/go-oidc` for OIDC.
 - Without email, account recovery depends on whoever runs the server.
+
+## Revisions
+
+- 2026-11-16, ADR-0013: this ADR applies to private instances. A public instance has self-registration through Clerk, since strangers sign up there and the offline and no-third-party-account reasons above do not apply to an instance that is a public website.

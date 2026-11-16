@@ -18,3 +18,7 @@ We use Readium's parts wherever they don't force an iframe: go-toolkit, RWPM, an
 
 - We pin go-toolkit at its latest release, v0.16.1. That release pulls in the AWS and Google Cloud SDKs, so the binary is about 57 MB, or 40 MB stripped. The `readium_nocloud` build tag drops them (14.8 MB), but it exists only on the unreleased `develop` branch. Upgrade when a release ships it. go-toolkit is pre-1.0, so its API may change between releases.
 - A reading-order document can hold several chapters (Gutenberg's file holds about seven), so the Navigator's unit is the document, not the chapter (ADR-0005).
+
+## Revisions
+
+- 2026-11-16, ADR-0011 and ADR-0012: this ADR applies to private instances. On a public instance the Streamer runs in the browser, behind the same RWPM boundary, because the server must never receive the book; the "all in the browser" option rejected above is accepted there, since the book is already on the user's computer and phones are out of scope.
