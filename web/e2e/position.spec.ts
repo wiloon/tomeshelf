@@ -1438,3 +1438,100 @@ test("an image-only odd-page document saves and restores its last spread", async
     .poll(() => article(page).evaluate((el) => el.scrollLeft))
     .toBeGreaterThan(0);
 });
+
+async function signOutFromHeader(page: Page) {
+  await page.getByRole("button", { name: "reader", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+}
+
+async function signInAndResume(page: Page, scrollLeft: number) {
+  await expect(page).toHaveURL(/\/signin$/);
+  await page.getByLabel("Username").fill("reader");
+  await page.getByLabel("Password").fill("reader password");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await openFromLibrary(page);
+  await expect
+    .poll(() => article(page).evaluate((el) => el.scrollLeft))
+    .toBe(scrollLeft);
+}
+
+test("sign-out flushes a position still in its debounce and resumes there", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await setUp(page);
+  await importChapters(page);
+  await openFromLibrary(page);
+  const puts = positionPuts(page);
+  const order: string[] = [];
+  page.on("request", (req) => {
+    if (req.method() === "PUT" && req.url().endsWith("/position"))
+      order.push("save");
+    if (req.method() === "DELETE" && req.url().endsWith("/api/session"))
+      order.push("signout");
+  });
+  await page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("button", { name: "Next" })
+    .click();
+  const moved = await article(page).evaluate((el) => el.scrollLeft);
+  expect(moved).toBeGreaterThan(0);
+  expect(puts).toHaveLength(0);
+  await signOutFromHeader(page);
+  await expect(page).toHaveURL(/\/signin$/);
+  expect(order).toEqual(["save", "signout"]);
+  await signInAndResume(page, moved);
+});
+
+for (const outcome of ["success", "failure", "newer after failure"] as const) {
+  test(`sign-out waits for a held position: ${outcome}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await setUp(page);
+    await importChapters(page);
+    await openFromLibrary(page);
+    const puts = positionPuts(page);
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    const events: string[] = [];
+    await page.route("**/api/books/*/position", async (route) => {
+      if (route.request().method() !== "PUT") return route.continue();
+      calls++;
+      events.push("save");
+      if (calls === 1) {
+        await held;
+        if (outcome !== "success") return route.fulfill({ status: 500 });
+      }
+      await route.continue();
+    });
+    page.on("request", (req) => {
+      if (req.method() === "DELETE" && req.url().endsWith("/api/session"))
+        events.push("signout");
+    });
+    const next = page
+      .getByRole("navigation", { name: "Reading order" })
+      .getByRole("button", { name: "Next" });
+    await next.click();
+    await expect.poll(() => puts.length).toBe(1);
+    if (outcome === "newer after failure") await next.click();
+    const moved = await article(page).evaluate((el) => el.scrollLeft);
+    expect(moved).toBeGreaterThan(0);
+    await signOutFromHeader(page);
+    // Longer than the debounce: deleting a session must wait for the held PUT.
+    await page.waitForTimeout(600);
+    expect(events).toEqual(["save"]);
+    release();
+    await expect(page).toHaveURL(/\/signin$/);
+    if (outcome === "newer after failure") {
+      expect(events).toEqual(["save", "save", "signout"]);
+      expect(puts[1].postDataJSON().locations.progression).toBeGreaterThan(
+        puts[0].postDataJSON().locations.progression,
+      );
+    } else {
+      expect(events).toEqual(["save", "signout"]);
+    }
+    if (outcome !== "failure") await signInAndResume(page, moved);
+  });
+}

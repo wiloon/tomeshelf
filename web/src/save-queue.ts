@@ -6,6 +6,9 @@ export type SaveQueue<T> = {
   // The page became hidden: a pending save skips the rest of its debounce,
   // but still waits for a save in flight.
   hidden: () => void;
+  // Sends the latest unsent value and waits for every send to settle,
+  // without retrying a value that has already failed.
+  flush: () => Promise<void>;
   // The page may be going away: a pending save is sent at once, even with
   // another save in flight.
   pagehide: () => void;
@@ -32,6 +35,9 @@ export function createSaveQueue<T>({
   let disposed = false;
   let current: T | undefined;
   let pending = false;
+  // Unlike pending, this is not restored by a failed send.
+  let unsent = false;
+  const active = new Set<Promise<void>>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let inFlight = 0;
   let overlapped = false;
@@ -91,11 +97,14 @@ export function createSaveQueue<T>({
 
   const sendNow = () => {
     pending = false;
+    unsent = false;
     inFlight++;
-    send(current as T).then(
+    const sent = send(current as T).then(
       () => finished(true),
       () => finished(false),
     );
+    active.add(sent);
+    void sent.then(() => active.delete(sent));
   };
 
   const sendIfFree = () => {
@@ -108,12 +117,22 @@ export function createSaveQueue<T>({
     change(value) {
       current = value;
       pending = true;
+      unsent = true;
       stopTimer();
       timer = setTimeout(() => {
         timer = undefined;
         sendIfFree();
         report();
       }, delay);
+      report();
+    },
+    async flush() {
+      stopTimer();
+      while (!disposed && (unsent || active.size > 0)) {
+        stopTimer();
+        if (unsent && inFlight === 0) sendNow();
+        await Promise.all(active);
+      }
       report();
     },
     hidden() {

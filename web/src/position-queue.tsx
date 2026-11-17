@@ -19,6 +19,8 @@ type PositionQueue = {
   change: (bookId: string, locator: Locator) => void;
   // A pending save skips the rest of its debounce (departing, Library, hide).
   hidden: () => void;
+  // Settle saves before ending the session, without retrying failed values.
+  flush: () => Promise<void>;
   // Best-effort send on unload, even beside a save in flight.
   pagehide: () => void;
 };
@@ -75,6 +77,7 @@ export function PositionQueueProvider({ children }: { children: ReactNode }) {
       change(bookId, locator) {
         queue.change({ bookId, locator });
       },
+      flush: () => queue.flush(),
       hidden() {
         withKeepalive(() => queue.hidden());
       },

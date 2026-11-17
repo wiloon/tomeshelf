@@ -1212,7 +1212,8 @@ test("a failed save cannot follow a different user into their session", async ({
   await panel.getByRole("button", { name: "Increase font size" }).click();
   await expect(panel.getByText("Not saved")).toBeVisible();
   await page.getByRole("link", { name: "Library" }).click();
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.locator("header [aria-haspopup=menu]").click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await page.context().addCookies([
     {
@@ -1254,7 +1255,8 @@ test("signing out discards saves waiting behind an in-flight save", async ({
   await expect.poll(() => puts.length).toBe(1);
   await increase.click();
   await page.getByRole("link", { name: "Library" }).click();
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.locator("header [aria-haspopup=menu]").click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   await page.context().addCookies([
     {
