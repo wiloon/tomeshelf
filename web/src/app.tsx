@@ -10,6 +10,9 @@ export function App({ router }: { router: AppRouter }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SettingsProvider>
+        {/* Keep the position queue inside SettingsProvider: sign-out re-keys
+            the settings session, recreating the queue and dropping failed saves.
+            Moving it outside lets a failed save follow the next user. */}
         <PositionQueueProvider>
           <RouterProvider router={router} />
         </PositionQueueProvider>

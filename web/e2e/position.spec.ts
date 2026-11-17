@@ -1,4 +1,6 @@
+import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   test as base,
   expect,
@@ -87,6 +89,30 @@ function positionPuts(page: Page) {
     }
   });
   return puts;
+}
+
+// Only the admin can be created through the app; give another reader a session.
+function addReader(server: TestServer, username: string): string {
+  const db = new DatabaseSync(path.join(server.dataDir, "tomeshelf.db"));
+  try {
+    db.exec("PRAGMA busy_timeout = 10000");
+    const user = db
+      .prepare(
+        "INSERT INTO users (username, password_hash) VALUES (?, 'not a real hash') RETURNING id",
+      )
+      .get(username) as { id: number };
+    const token = randomBytes(32).toString("base64url");
+    db.prepare(
+      "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
+    ).run(
+      createHash("sha256").update(token).digest(),
+      user.id,
+      Math.floor(Date.now() / 1000) + 3600,
+    );
+    return token;
+  } finally {
+    db.close();
+  }
 }
 
 test("turning a spread saves a debounced position and the library resumes there", async ({
@@ -351,6 +377,51 @@ test("a failed position save is sent again on hide", async ({ page }) => {
   failing = false;
   await hidePage(page);
   await expect.poll(() => puts.length, { timeout: 2000 }).toBe(2);
+});
+
+test("a failed position save cannot follow a different user into their session", async ({
+  page,
+  server,
+}) => {
+  await setUp(page, "scroll");
+  await importChapters(page);
+  await openFromLibrary(page);
+  await page.route("**/api/books/*/position", (route) =>
+    route.request().method() === "PUT"
+      ? route.fulfill({ status: 500 })
+      : route.fallback(),
+  );
+  const failedSave = page.waitForResponse(
+    (response) =>
+      response.request().method() === "PUT" &&
+      /\/api\/books\/\d+\/position$/.test(response.url()) &&
+      response.status() === 500,
+  );
+  await page.evaluate(() => window.scrollTo(0, 500));
+  await failedSave;
+  await page.getByRole("link", { name: "Library" }).click();
+  await page.locator("header [aria-haspopup=menu]").click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  const puts = positionPuts(page);
+  await page.context().addCookies([
+    {
+      name: "tomeshelf_session",
+      value: addReader(server, "other"),
+      url: server.url,
+    },
+  ]);
+  await page.unrouteAll();
+  // Keep the same document alive so a leaked queue and its listeners survive.
+  await page.evaluate(() => {
+    history.pushState({}, "", "/");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.getByLabel("Import an EPUB")).toBeVisible();
+  await hidePage(page);
+  await hidePage(page, "pagehide");
+  await page.waitForTimeout(800);
+  expect(puts).toHaveLength(0);
 });
 
 test("a resize after restoring or after moving saves nothing", async ({
