@@ -149,7 +149,15 @@ function CardMenu({
       button.current?.focus();
     };
     const outside = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) close();
+      if (root.current?.contains(event.target as Node)) return;
+      // Clicking another control (e.g. another card's ⋯) moves focus there;
+      // only restore our trigger when the click landed on inert content.
+      const target = event.target as Element;
+      if (target.closest?.("a, button, input, select, textarea, [tabindex]")) {
+        setOpen(false);
+      } else {
+        close();
+      }
     };
     const key = (event: KeyboardEvent) => {
       if (event.key === "Escape") {

@@ -118,6 +118,31 @@ for (const dismissal of ["Escape", "outside click"]) {
   });
 }
 
+test("opening another card's menu leaves focus in that menu", async ({
+  page,
+}) => {
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(
+      path.join(
+        books,
+        "robert-louis-stevenson_the-strange-case-of-dr-jekyll-and-mr-hyde.epub",
+      ),
+    );
+  const items = page
+    .getByRole("list", { name: "Library" })
+    .getByRole("listitem");
+  await expect(items).toHaveCount(2);
+  const triggers = page.getByRole("button", { name: /^More actions for / });
+  await triggers.nth(0).click();
+  await expect(page.getByRole("menu")).toHaveCount(1);
+  await triggers.nth(1).click();
+  await expect(page.getByRole("menu")).toHaveCount(1);
+  await expect(page.getByRole("menuitem", { name: "Delete" })).toBeFocused();
+  await expect(triggers.nth(0)).toHaveAttribute("aria-expanded", "false");
+  await expect(triggers.nth(1)).toHaveAttribute("aria-expanded", "true");
+});
+
 test.describe("touch-only device", () => {
   test.use({
     viewport: { width: 390, height: 844 },
