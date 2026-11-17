@@ -239,6 +239,139 @@ test("arrow keys turn a spread; theme radios keep the arrows", async ({
     .toBe(0);
 });
 
+test("Ctrl + wheel leaves zoom to the browser and saves no position", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const id = await openBook(page);
+  // Let any arrival/re-layout work settle past the 500 ms save debounce.
+  await page.waitForTimeout(800);
+  const puts: string[] = [];
+  page.on("request", (req) => {
+    if (
+      req.method() === "PUT" &&
+      req.url().endsWith(`/api/books/${id}/position`)
+    )
+      puts.push(req.url());
+  });
+  const before = (await pagesGeometry(page))?.articleScrollLeft;
+  const prevented = await article(page).evaluate((el) => {
+    const event = new WheelEvent("wheel", {
+      ctrlKey: true,
+      deltaX: 40,
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(prevented).toBe(false);
+  await page.waitForTimeout(800);
+  expect((await pagesGeometry(page))?.articleScrollLeft).toBe(before);
+  expect(puts).toEqual([]);
+
+  // A plain wheel still reaches the same listener and turns a spread.
+  const plainPrevented = await article(page).evaluate((el) => {
+    const event = new WheelEvent("wheel", {
+      deltaX: 40,
+      bubbles: true,
+      cancelable: true,
+    });
+    el.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(plainPrevented).toBe(true);
+  await expect
+    .poll(async () => (await pagesGeometry(page))?.articleScrollLeft ?? 0)
+    .toBeGreaterThan(before ?? 0);
+  await expect.poll(() => puts.length).toBe(1);
+});
+
+for (const scenario of [
+  {
+    name: "start",
+    events: [
+      [0, true],
+      [100, false],
+    ],
+    turns: [0, 1],
+  },
+  {
+    name: "end",
+    events: [
+      [0, false],
+      [100, true],
+      [200, false],
+    ],
+    turns: [1, 1, 1],
+  },
+  {
+    name: "extend",
+    events: [
+      [0, false],
+      [200, true],
+      [400, false],
+    ],
+    turns: [1, 1, 2],
+  },
+] as const) {
+  test(`Ctrl + wheel does not ${scenario.name} a plain wheel gesture`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openBook(page);
+    const result = await article(page).evaluate(async (el, events) => {
+      const before = el.scrollLeft;
+      const samples: { offset: number; prevented: boolean; time: number }[] =
+        [];
+      const start = performance.now();
+      // Schedule in the page so browser/runner round trips cannot alter gaps.
+      await Promise.all(
+        events.map(
+          ([delay, ctrlKey]) =>
+            new Promise<void>((resolve) => {
+              setTimeout(() => {
+                const event = new WheelEvent("wheel", {
+                  ctrlKey,
+                  deltaX: 40,
+                  bubbles: true,
+                  cancelable: true,
+                });
+                el.dispatchEvent(event);
+                samples.push({
+                  offset: el.scrollLeft - before,
+                  prevented: event.defaultPrevented,
+                  time: performance.now() - start,
+                });
+                resolve();
+              }, delay);
+            }),
+        ),
+      );
+      return {
+        samples,
+        step:
+          el.clientWidth + Number.parseFloat(getComputedStyle(el).columnGap),
+      };
+    }, scenario.events);
+    expect(result.samples.map((sample) => sample.offset)).toEqual(
+      scenario.turns.map((turns) => turns * result.step),
+    );
+    expect(result.samples.map((sample) => sample.prevented)).toEqual(
+      scenario.events.map(([, ctrlKey]) => !ctrlKey),
+    );
+    // Verify the real elapsed gaps straddle the 300 ms gesture quiet time.
+    const times = result.samples.map((sample) => sample.time);
+    expect(times[1] - times[0]).toBeLessThan(300);
+    if (scenario.name === "extend") {
+      expect(times[2] - times[0]).toBeGreaterThan(300);
+      expect(times[2] - times[1]).toBeLessThan(300);
+    } else if (scenario.name === "end") {
+      expect(times[2] - times[1]).toBeLessThan(300);
+    }
+  });
+}
+
 test("one wheel burst turns one spread; a second after a quiet gap turns another", async ({
   page,
 }) => {
