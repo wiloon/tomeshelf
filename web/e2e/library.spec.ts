@@ -198,7 +198,7 @@ test.describe("library layout", () => {
     });
   }
 
-  test("continue reading selects the higher id on tied saves and fits above the grid on a phone", async ({
+  test("continue reading selects the newest import on tied saves and fits above the grid on a phone", async ({
     page,
   }) => {
     await page.route("**/api/books", (route) =>
@@ -206,20 +206,19 @@ test.describe("library layout", () => {
         json: books.map((book, i) => ({
           ...book,
           savedAt: i < 2 ? 1000 : undefined,
+          importedAt: i === 0 ? 2000 : 1000,
         })),
       }),
     );
     await page.reload();
     const card = page.getByRole("region", { name: "Continue reading" });
-    await expect(
-      card.getByRole("heading", { name: "山と海の物語" }),
-    ).toBeVisible();
+    await expect(card.getByRole("heading", { name: longTitle })).toBeVisible();
     await expect(
       card.getByRole("link", { name: "Resume", exact: true }),
-    ).toHaveAttribute("href", "/books/2/read");
+    ).toHaveAttribute("href", "/books/1/read");
     await expect(
       card.getByRole("link", { name: "Resume from cover" }),
-    ).toHaveAttribute("href", "/books/2/read");
+    ).toHaveAttribute("href", "/books/1/read");
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
       await page.evaluate(

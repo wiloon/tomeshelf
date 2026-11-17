@@ -17,17 +17,19 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/wiloon/tomeshelf/internal/library"
 	"github.com/wiloon/tomeshelf/internal/store"
 )
 
 type listedBook struct {
-	SavedAt  *int64   `json:"savedAt"`
-	ID       int64    `json:"id"`
-	Title    string   `json:"title"`
-	Authors  []string `json:"authors"`
-	Progress *int     `json:"progress"`
+	ImportedAt int64    `json:"importedAt"`
+	SavedAt    *int64   `json:"savedAt"`
+	ID         int64    `json:"id"`
+	Title      string   `json:"title"`
+	Authors    []string `json:"authors"`
+	Progress   *int     `json:"progress"`
 }
 
 func fixture(t *testing.T, name string) []byte {
@@ -152,7 +154,8 @@ func TestImportedBooksAreListedWithTitleAndAuthorsAndSurviveARestart(t *testing.
 	e := newEnv(t, buildFS())
 	cookie := e.setup(t)
 	var imported [][]byte
-	for _, tc := range cases {
+	for i, tc := range cases {
+		e.store.Now = func() time.Time { return time.Unix(1700000000+int64(i), 0) }
 		book := fixture(t, tc.file)
 		res := e.importBook(t, cookie, book)
 		requireStatus(t, res, http.StatusCreated)
@@ -163,6 +166,9 @@ func TestImportedBooksAreListedWithTitleAndAuthorsAndSurviveARestart(t *testing.
 		if got.Title != tc.title || !slices.Equal(got.Authors, tc.authors) {
 			t.Errorf("%s: imported %q by %v, want %q by %v", tc.file, got.Title, got.Authors, tc.title, tc.authors)
 		}
+		if got.ImportedAt != 1700000000+int64(i) {
+			t.Errorf("%s: importedAt = %d, want %d", tc.file, got.ImportedAt, 1700000000+int64(i))
+		}
 		imported = append(imported, book)
 	}
 
@@ -172,11 +178,14 @@ func TestImportedBooksAreListedWithTitleAndAuthorsAndSurviveARestart(t *testing.
 		if len(books) != len(cases) {
 			t.Fatalf("listed %d books, want %d: %+v", len(books), len(cases), books)
 		}
-		for _, tc := range cases {
+		for caseIndex, tc := range cases {
 			i := slices.IndexFunc(books, func(b listedBook) bool { return b.Title == tc.title })
 			if i < 0 {
 				t.Errorf("%q is not listed: %+v", tc.title, books)
 				continue
+			}
+			if books[i].ImportedAt != 1700000000+int64(caseIndex) {
+				t.Errorf("%q: listed importedAt = %d, want %d", tc.title, books[i].ImportedAt, 1700000000+int64(caseIndex))
 			}
 			if !slices.Equal(books[i].Authors, tc.authors) {
 				t.Errorf("%q listed by %v, want %v", tc.title, books[i].Authors, tc.authors)

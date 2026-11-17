@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { continueReadingBook } from "./continue-reading";
 
-const book = (id: number, savedAt?: number) => ({
+const book = (id: number, savedAt?: number, importedAt = 0) => ({
   id,
   title: `Book ${id}`,
   authors: [],
   savedAt,
+  importedAt,
 });
 
 describe("continueReadingBook", () => {
@@ -14,11 +15,20 @@ describe("continueReadingBook", () => {
     expect(continueReadingBook(books)).toBe(books[1]);
     expect(books.map((b) => b.id)).toEqual([3, 1, 2]);
   });
-  it("breaks equal newest times by highest book id in either list order", () => {
+  it("breaks equal newest times by newest import before id in either list order", () => {
+    const older = book(3, 100, 1000);
+    const newer = book(1, 100, 1001);
+    const earlierSave = book(5, 99, 1002);
+    expect(continueReadingBook([older, newer, earlierSave])).toBe(newer);
+    expect(continueReadingBook([newer, older])).toBe(newer);
+  });
+  it("breaks equal save and import times by highest id in either list order", () => {
     expect(
-      continueReadingBook([book(1, 100), book(3, 100), book(5, 99)])?.id,
+      continueReadingBook([book(1, 100, 1000), book(3, 100, 1000)])?.id,
     ).toBe(3);
-    expect(continueReadingBook([book(3, 100), book(1, 100)])?.id).toBe(3);
+    expect(
+      continueReadingBook([book(3, 100, 1000), book(1, 100, 1000)])?.id,
+    ).toBe(3);
   });
   it("has no card without save times, including an empty library", () => {
     expect(continueReadingBook([])).toBeUndefined();

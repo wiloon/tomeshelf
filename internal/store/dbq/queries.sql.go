@@ -69,7 +69,7 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 }
 
 const getBook = `-- name: GetBook :one
-SELECT books.id, books.sha256, books.title, books.authors
+SELECT books.id, books.sha256, books.title, books.authors, books.imported_at
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ? AND books.id = ?
 `
@@ -80,10 +80,11 @@ type GetBookParams struct {
 }
 
 type GetBookRow struct {
-	ID      int64
-	Sha256  string
-	Title   string
-	Authors string
+	ID         int64
+	Sha256     string
+	Title      string
+	Authors    string
+	ImportedAt int64
 }
 
 func (q *Queries) GetBook(ctx context.Context, arg GetBookParams) (GetBookRow, error) {
@@ -94,6 +95,7 @@ func (q *Queries) GetBook(ctx context.Context, arg GetBookParams) (GetBookRow, e
 		&i.Sha256,
 		&i.Title,
 		&i.Authors,
+		&i.ImportedAt,
 	)
 	return i, err
 }
@@ -358,7 +360,7 @@ func (q *Queries) ListBooks(ctx context.Context, username string) ([]ListBooksRo
 }
 
 const listBooksWithProgress = `-- name: ListBooksWithProgress :many
-SELECT books.id, books.sha256, books.title, books.authors, reading_positions.total_progression, reading_positions.saved_at
+SELECT books.id, books.sha256, books.title, books.authors, books.imported_at, reading_positions.total_progression, reading_positions.saved_at
 FROM books
 JOIN users ON users.id = books.user_id
 LEFT JOIN reading_positions ON reading_positions.book_id = books.id
@@ -371,6 +373,7 @@ type ListBooksWithProgressRow struct {
 	Sha256           string
 	Title            string
 	Authors          string
+	ImportedAt       int64
 	TotalProgression sql.NullFloat64
 	SavedAt          sql.NullInt64
 }
@@ -389,6 +392,7 @@ func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([
 			&i.Sha256,
 			&i.Title,
 			&i.Authors,
+			&i.ImportedAt,
 			&i.TotalProgression,
 			&i.SavedAt,
 		); err != nil {
