@@ -9,7 +9,7 @@ Every tomeshelf instance is self-hosted on its own domain, so match the markup b
 A reading page shows one document of a book: one XHTML file in the book's reading order.
 
 - **`<meta name="generator" content="tomeshelf <version>">`** in the `head`. It marks the page as a tomeshelf reading page. The version is free text without spaces (a release tag, a commit, or `dev`), so match the `tomeshelf ` prefix rather than a version.
-- **`<meta name="tomeshelf:book" content="<book id>">`** in the `head`. The book id is an opaque string, the same on every document of a book and different for every other book in the same instance. Use it to treat the documents of a book as one book.
+- **`<meta name="tomeshelf:book" content="<book id>">`** in the `head`. The book id is an opaque string, the same on every document of a book and different for every other book in the same instance. An id never names a different book: a book deleted and imported again from the same file keeps its id, so it is the same book. Use it to treat the documents of a book as one book.
 - **`<meta name="tomeshelf:restores-position" content="true">`** in the `head`. It declares that tomeshelf itself reopens a book at its reading position (ADR-0005), so an extension that also tracks reading positions should not offer its own "continue reading" jump on these pages.
 - **One `<article id="tomeshelf-content">`** that holds the document's text. It is in the page's main DOM: no iframe and no shadow root holds the text (ADR-0001).
 - **`data-tomeshelf-block="<n>"`** on each block. Blocks are the `p`, `h1` to `h6` and `li` elements inside the article. They are numbered per document, from 1, in document order (pre-order, so an `li` comes before a `p` nested in it).
