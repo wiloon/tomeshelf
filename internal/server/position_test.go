@@ -3,6 +3,8 @@ package server_test
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +13,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/pressly/goose/v3"
+
+	"github.com/wiloon/tomeshelf/internal/store"
 )
 
 func positionPath(id int64) string {
@@ -368,5 +375,115 @@ func TestGetAPIBooksReportsEachBooksProgress(t *testing.T) {
 	}
 	if !foundWith || !foundWithout {
 		t.Fatalf("library listing missing books: %+v", books)
+	}
+}
+
+func TestBooksReportAcceptedSaveTimesInMilliseconds(t *testing.T) {
+	e := newEnv(t, buildFS())
+	c := e.setup(t)
+	a := e.importedID(t, c, fixture(t, "chapters.epub"))
+	b := e.importedID(t, c, fixture(t, "epub3.epub"))
+	hrefA := readingOrderHref(t, e, a, c, 0)
+	hrefB := readingOrderHref(t, e, b, c, 0)
+	now := time.UnixMilli(1700000000123)
+	e.store.Now = func() time.Time { return now }
+	check := func(id int64, want *int64) {
+		t.Helper()
+		for _, book := range e.books(t, c) {
+			if book.ID == id {
+				if want == nil {
+					if book.SavedAt != nil {
+						t.Fatalf("book %d savedAt = %d, want absent", id, *book.SavedAt)
+					}
+					return
+				}
+				if book.SavedAt == nil || *book.SavedAt != *want {
+					t.Fatalf("book %d savedAt = %v, want %d", id, book.SavedAt, *want)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing book %d", id)
+	}
+	check(a, nil)
+	check(b, nil)
+	requireStatus(t, e.putPosition(t, a, c, saveBody("tab", 2, hrefA, 0.5, "")), http.StatusNoContent)
+	first := now.UnixMilli()
+	check(a, &first)
+	now = now.Add(time.Millisecond)
+	requireStatus(t, e.putPosition(t, b, c, saveBody("tab", 1, hrefB, 0.2, "")), http.StatusNoContent)
+	second := now.UnixMilli()
+	check(a, &first)
+	check(b, &second)
+	now = now.Add(time.Second)
+	for _, seq := range []int64{2, 1} {
+		requireStatus(t, e.putPosition(t, a, c, saveBody("tab", seq, hrefA, 0.9, "")), http.StatusNoContent)
+		check(a, &first)
+		res := e.getPosition(t, a, c)
+		requireStatus(t, res, http.StatusOK)
+		var loc struct {
+			Locations struct {
+				Progression float64 `json:"progression"`
+			} `json:"locations"`
+		}
+		if err := json.Unmarshal([]byte(body(t, res)), &loc); err != nil {
+			t.Fatal(err)
+		}
+		if loc.Locations.Progression != 0.5 {
+			t.Fatalf("stale save changed progression: %g", loc.Locations.Progression)
+		}
+	}
+	requireStatus(t, e.putPosition(t, a, c, saveBody("tab", 3, hrefA, 0.8, "")), http.StatusNoContent)
+	latest := now.UnixMilli()
+	check(a, &latest)
+	now = now.Add(time.Second)
+	other := e.otherUser(t, "other")
+	otherID := e.importedID(t, other, fixture(t, "chapters.epub"))
+	requireStatus(t, e.putPosition(t, otherID, other, saveBody("tab", 1, hrefA, 0.9, "")), http.StatusNoContent)
+	check(a, &latest)
+	check(b, &second)
+	if books := e.books(t, c); len(books) != 2 {
+		t.Fatalf("admin library = %+v", books)
+	}
+	if books := e.books(t, other); len(books) != 1 || books[0].ID != otherID {
+		t.Fatalf("other library = %+v", books)
+	}
+}
+
+func TestMigratedReadingPositionHasNoSaveTimeUntilAcceptedSave(t *testing.T) {
+	e := newEnv(t, buildFS())
+	c := e.setup(t)
+	id := e.importedID(t, c, fixture(t, "chapters.epub"))
+	href := readingOrderHref(t, e, id, c, 0)
+	requireStatus(t, e.putPosition(t, id, c, saveBody("tab", 1, href, 0.5, "")), http.StatusNoContent)
+	if err := e.store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := sql.Open("sqlite", e.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider, err := goose.NewProvider(goose.DialectSQLite3, raw, store.Migrations())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := provider.DownTo(context.Background(), 6); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	e = openEnv(t, buildFS(), envOptions{dataDir: e.dataDir})
+	books := e.books(t, c)
+	if len(books) != 1 || books[0].SavedAt != nil || books[0].Progress == nil {
+		t.Fatalf("migrated library = %+v, want position with progress but no save time", books)
+	}
+	requireStatus(t, e.putPosition(t, id, c, saveBody("tab", 1, href, 0.9, "")), http.StatusNoContent)
+	if e.books(t, c)[0].SavedAt != nil {
+		t.Fatal("stale save gave migrated position a time")
+	}
+	requireStatus(t, e.putPosition(t, id, c, saveBody("tab", 2, href, 0.6, "")), http.StatusNoContent)
+	if e.books(t, c)[0].SavedAt == nil {
+		t.Fatal("accepted save has no time")
 	}
 }

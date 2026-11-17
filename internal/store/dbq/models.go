@@ -27,6 +27,7 @@ type ReadingPosition struct {
 	TextBefore       sql.NullString
 	TextHighlight    sql.NullString
 	TextAfter        sql.NullString
+	SavedAt          sql.NullInt64
 }
 
 type ReadingPositionTab struct {

@@ -1,4 +1,6 @@
+import path from "node:path";
 import { expect, test } from "@playwright/test";
+import { startServer, type TestServer } from "./server";
 
 const longTitle =
   "A very long title about journeys through distant lands and extraordinary adventures beyond the edge of the known world";
@@ -16,125 +18,276 @@ const books = Array.from({ length: 12 }, (_, i) => ({
   ...(i === 2 ? { progress: 37 } : {}),
 }));
 
-test.beforeEach(async ({ page }) => {
-  await page.route("**/api/books", (route) => route.fulfill({ json: books }));
-  await page.route("**/api/books/*/thumbnail", (route) =>
-    route.fulfill({
-      contentType: "image/svg+xml",
-      body: '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="200" height="300" fill="#987654"/></svg>',
-    }),
-  );
-  await page.goto("/");
-  await expect(
-    page.getByRole("list", { name: "Library" }).getByRole("listitem"),
-  ).toHaveCount(12);
-});
-
-test("the library fits more bounded covers on wide screens and stays centred", async ({
-  page,
-}) => {
-  const list = page.getByRole("list", { name: "Library" });
-  const counts: number[] = [];
-  for (const width of [390, 1280, 2000]) {
-    await page.setViewportSize({ width, height: 900 });
-    const boxes = await list.getByRole("listitem").evaluateAll((items) =>
-      items.map((item) => {
-        const box = item.getBoundingClientRect();
-        return {
-          y: box.y,
-          width: item.querySelector("img")?.getBoundingClientRect().width ?? 0,
-        };
+test.describe("library layout", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route("**/api/books", (route) => route.fulfill({ json: books }));
+    await page.route("**/api/books/*/thumbnail", (route) =>
+      route.fulfill({
+        contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="200" height="300" fill="#987654"/></svg>',
       }),
     );
-    counts.push(boxes.filter((box) => Math.abs(box.y - boxes[0].y) < 1).length);
-    for (const box of boxes) {
-      expect(box.width).toBeGreaterThan(0);
-      expect(box.width).toBeLessThanOrEqual(180);
-    }
-    if (width === 390) {
-      expect(
-        await page.evaluate(
-          () =>
-            document.documentElement.scrollWidth <=
-            document.documentElement.clientWidth,
-        ),
-      ).toBe(true);
-    }
-  }
-  expect(counts[0]).toBeGreaterThanOrEqual(2);
-  expect(counts[0]).toBeLessThanOrEqual(3);
-  expect(counts[1]).toBeGreaterThanOrEqual(6);
-  expect(counts[2]).toBeGreaterThan(counts[1]);
-  const container = await list.locator("..").boundingBox();
-  expect(container).not.toBeNull();
-  if (!container) throw new Error("Library container missing");
-  expect(container.width).toBeLessThanOrEqual(1536);
-  expect(
-    Math.abs(container.x - (2000 - container.x - container.width)),
-  ).toBeLessThanOrEqual(1);
-});
+    await page.goto("/");
+    await expect(
+      page.getByRole("list", { name: "Library" }).getByRole("listitem"),
+    ).toHaveCount(12);
+  });
 
-test("book links retain their full accessible names", async ({ page }) => {
-  const links = page.getByRole("list", { name: "Library" }).getByRole("link");
-  await expect(links.nth(2)).toHaveAccessibleName("Book 3 by A. Writer 37%");
-  await expect(links.nth(1)).toHaveAccessibleName("山と海の物語 by A. Writer");
-});
-
-for (const width of [390, 1280, 2000]) {
-  test(`long book metadata is ellipsized with full hover text and a hidden by prefix at ${width} px`, async ({
+  test("the library fits more bounded covers on wide screens and stays centred", async ({
     page,
   }) => {
-    await page.setViewportSize({ width, height: 900 });
-    const link = page
-      .getByRole("list", { name: "Library" })
-      .getByRole("link")
-      .first();
-    const title = link.getByText(longTitle, { exact: true });
-    const authors = link.getByText(manyAuthors.join(", "), { exact: false });
-    await expect(title).toHaveAttribute("title", longTitle);
-    await expect(authors).toHaveAttribute("title", manyAuthors.join(", "));
-    const titleStyle = await title.evaluate((el) => {
-      const style = getComputedStyle(el);
-      return {
-        lines: el.clientHeight / parseFloat(style.lineHeight),
-        overflowing: el.scrollHeight > el.clientHeight,
-        clamp: style.webkitLineClamp,
-        display: style.display,
-        orient: style.webkitBoxOrient,
-        overflow: style.overflow,
-      };
-    });
-    // Chromium 159 serializes a clamped -webkit-box as flow-root.
-    expect(["-webkit-box", "flow-root"]).toContain(titleStyle.display);
-    expect(titleStyle).toMatchObject({
-      lines: 2,
-      overflowing: true,
-      clamp: "2",
-      orient: "vertical",
-      overflow: "hidden",
-    });
-    const authorStyle = await authors.evaluate((el) => {
-      const style = getComputedStyle(el);
-      return {
-        lines: el.clientHeight / parseFloat(style.lineHeight),
-        overflowing: el.scrollWidth > el.clientWidth,
-        ellipsis: style.textOverflow,
-        whitespace: style.whiteSpace,
-        overflow: style.overflow,
-      };
-    });
-    expect(authorStyle).toEqual({
-      lines: 1,
-      overflowing: true,
-      ellipsis: "ellipsis",
-      whitespace: "nowrap",
-      overflow: "hidden",
-    });
-    await expect(authors.getByText("by", { exact: true })).toHaveClass(
-      "sr-only",
-    );
-    const prefix = authors.getByText("by", { exact: true });
-    await expect(prefix).toHaveCSS("position", "absolute");
-    await expect(prefix).toHaveCSS("clip-path", "inset(50%)");
+    const list = page.getByRole("list", { name: "Library" });
+    const counts: number[] = [];
+    for (const width of [390, 1280, 2000]) {
+      await page.setViewportSize({ width, height: 900 });
+      const boxes = await list.getByRole("listitem").evaluateAll((items) =>
+        items.map((item) => {
+          const box = item.getBoundingClientRect();
+          return {
+            y: box.y,
+            width:
+              item.querySelector("img")?.getBoundingClientRect().width ?? 0,
+          };
+        }),
+      );
+      counts.push(
+        boxes.filter((box) => Math.abs(box.y - boxes[0].y) < 1).length,
+      );
+      for (const box of boxes) {
+        expect(box.width).toBeGreaterThan(0);
+        expect(box.width).toBeLessThanOrEqual(180);
+      }
+      if (width === 390) {
+        expect(
+          await page.evaluate(
+            () =>
+              document.documentElement.scrollWidth <=
+              document.documentElement.clientWidth,
+          ),
+        ).toBe(true);
+      }
+    }
+    expect(counts[0]).toBeGreaterThanOrEqual(2);
+    expect(counts[0]).toBeLessThanOrEqual(3);
+    expect(counts[1]).toBeGreaterThanOrEqual(6);
+    expect(counts[2]).toBeGreaterThan(counts[1]);
+    const container = await list.locator("..").boundingBox();
+    expect(container).not.toBeNull();
+    if (!container) throw new Error("Library container missing");
+    expect(container.width).toBeLessThanOrEqual(1536);
+    expect(
+      Math.abs(container.x - (2000 - container.x - container.width)),
+    ).toBeLessThanOrEqual(1);
   });
-}
+
+  test("book links retain their full accessible names", async ({ page }) => {
+    const links = page.getByRole("list", { name: "Library" }).getByRole("link");
+    await expect(links.nth(2)).toHaveAccessibleName("Book 3 by A. Writer 37%");
+    await expect(links.nth(1)).toHaveAccessibleName(
+      "山と海の物語 by A. Writer",
+    );
+  });
+
+  for (const width of [390, 1280, 2000]) {
+    test(`long book metadata is ellipsized with full hover text and a hidden by prefix at ${width} px`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      const link = page
+        .getByRole("list", { name: "Library" })
+        .getByRole("link")
+        .first();
+      const title = link.getByText(longTitle, { exact: true });
+      const authors = link.getByText(manyAuthors.join(", "), { exact: false });
+      await expect(title).toHaveAttribute("title", longTitle);
+      await expect(authors).toHaveAttribute("title", manyAuthors.join(", "));
+      const titleStyle = await title.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return {
+          lines: el.clientHeight / parseFloat(style.lineHeight),
+          overflowing: el.scrollHeight > el.clientHeight,
+          clamp: style.webkitLineClamp,
+          display: style.display,
+          orient: style.webkitBoxOrient,
+          overflow: style.overflow,
+        };
+      });
+      // Chromium 159 serializes a clamped -webkit-box as flow-root.
+      expect(["-webkit-box", "flow-root"]).toContain(titleStyle.display);
+      expect(titleStyle).toMatchObject({
+        lines: 2,
+        overflowing: true,
+        clamp: "2",
+        orient: "vertical",
+        overflow: "hidden",
+      });
+      const authorStyle = await authors.evaluate((el) => {
+        const style = getComputedStyle(el);
+        return {
+          lines: el.clientHeight / parseFloat(style.lineHeight),
+          overflowing: el.scrollWidth > el.clientWidth,
+          ellipsis: style.textOverflow,
+          whitespace: style.whiteSpace,
+          overflow: style.overflow,
+        };
+      });
+      expect(authorStyle).toEqual({
+        lines: 1,
+        overflowing: true,
+        ellipsis: "ellipsis",
+        whitespace: "nowrap",
+        overflow: "hidden",
+      });
+      await expect(authors.getByText("by", { exact: true })).toHaveClass(
+        "sr-only",
+      );
+      const prefix = authors.getByText("by", { exact: true });
+      await expect(prefix).toHaveCSS("position", "absolute");
+      await expect(prefix).toHaveCSS("clip-path", "inset(50%)");
+    });
+  }
+
+  test("continue reading selects the higher id on tied saves and fits above the grid on a phone", async ({
+    page,
+  }) => {
+    await page.route("**/api/books", (route) =>
+      route.fulfill({
+        json: books.map((book, i) => ({
+          ...book,
+          savedAt: i < 2 ? 1000 : undefined,
+        })),
+      }),
+    );
+    await page.reload();
+    const card = page.getByRole("region", { name: "Continue reading" });
+    await expect(
+      card.getByRole("heading", { name: "山と海の物語" }),
+    ).toBeVisible();
+    await expect(
+      card.getByRole("link", { name: "Resume", exact: true }),
+    ).toHaveAttribute("href", "/books/2/read");
+    await expect(
+      card.getByRole("link", { name: "Resume from cover" }),
+    ).toHaveAttribute("href", "/books/2/read");
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+    const first = await page
+      .getByRole("list", { name: "Library" })
+      .getByRole("listitem")
+      .first()
+      .boundingBox();
+    expect(first?.y).toBeLessThan(844);
+    await expect(
+      page.getByRole("list", { name: "Library" }).getByRole("listitem"),
+    ).toHaveCount(12);
+  });
+});
+
+const readingTest = test.extend<{ server: TestServer }>({
+  // biome-ignore lint/correctness/noEmptyPattern: Playwright requires a destructured first argument.
+  server: async ({}, use) => {
+    const server = await startServer();
+    try {
+      await use(server);
+    } finally {
+      await server.stop();
+    }
+  },
+  baseURL: async ({ server }, use) => use(server.url),
+  storageState: { cookies: [], origins: [] },
+});
+
+readingTest(
+  "continue reading follows the departing save and both card links restore it",
+  async ({ page }) => {
+    const setup = await page.request.post("/api/setup", {
+      data: { username: "reader", password: "reader password" },
+    });
+    expect(setup.status()).toBe(201);
+    await page.goto("/");
+    const card = page.getByRole("region", { name: "Continue reading" });
+    await expect(card).toHaveCount(0);
+    for (const file of ["reader.epub", "chapters.epub"]) {
+      await page
+        .getByLabel("Import an EPUB")
+        .setInputFiles(
+          path.resolve(import.meta.dirname, "../../testdata/books", file),
+        );
+      await expect(page.getByRole("status")).toContainText("Imported");
+    }
+    const grid = page.getByRole("list", { name: "Library" });
+    await expect(grid.getByRole("listitem")).toHaveCount(2);
+    await expect(card).toHaveCount(0);
+    await grid.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
+    await expect(page.locator("article#tomeshelf-content")).toBeVisible();
+    await page
+      .getByRole("navigation", { name: "Reading order" })
+      .getByRole("button", { name: "Next" })
+      .click();
+    await page.getByRole("link", { name: "Library", exact: true }).click();
+    await expect(
+      card.getByRole("heading", {
+        name: "A Hand-Made Reading Book",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await grid
+      .getByRole("link", { name: /A Hand-Made Book of Chapters/ })
+      .click();
+    await expect(page.locator("article#tomeshelf-content")).toContainText(
+      "CHAPTER I.",
+    );
+    await page
+      .getByRole("navigation", { name: "Reading order" })
+      .getByRole("button", { name: "Next" })
+      .click();
+    // Leave inside the debounce so this exercises the departing save and refetch.
+    await page.getByRole("link", { name: "Library", exact: true }).click();
+    await expect(
+      card.getByRole("heading", {
+        name: "A Hand-Made Book of Chapters",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(card.getByText("Ada Fixture", { exact: true })).toBeVisible();
+    await expect(card.getByText(/^[0-9]+%$/)).toBeVisible();
+    await expect(
+      grid.getByRole("link", { name: /A Hand-Made Book of Chapters/ }),
+    ).toBeVisible();
+    const address = await card
+      .getByRole("link", { name: "Resume", exact: true })
+      .getAttribute("href");
+    const id = address?.split("/")[2];
+    const res = await page.request.get(`/api/books/${id}/position`);
+    expect(res.status()).toBe(200);
+    const saved = (await res.json()) as { locations: { cssSelector: string } };
+    for (const name of ["Resume", "Resume from cover"]) {
+      await card.getByRole("link", { name, exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+      await expect
+        .poll(() =>
+          page.evaluate((selector) => {
+            const article = document.getElementById("tomeshelf-content");
+            const block = article?.querySelector(selector);
+            if (!article || !block) return false;
+            const visible = article.getBoundingClientRect();
+            const anchor = block.getBoundingClientRect();
+            return (
+              article.scrollLeft > 0 &&
+              anchor.right > visible.left &&
+              anchor.left < visible.right
+            );
+          }, saved.locations.cssSelector),
+        )
+        .toBe(true);
+      await page.getByRole("link", { name: "Library", exact: true }).click();
+      await expect(card).toBeVisible();
+    }
+  },
+);

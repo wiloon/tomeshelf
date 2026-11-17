@@ -2,11 +2,14 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
 
+import { continueReadingBook } from "./continue-reading";
+
 type Book = {
   id: number;
   title: string;
   authors: string[];
   progress?: number;
+  savedAt?: number;
 };
 
 type Outcome = { ok: boolean; text: string };
@@ -147,6 +150,7 @@ function Cover({ book }: { book: Book }) {
 export function LibraryPage() {
   const queryClient = useQueryClient();
   const books = useQuery({ queryKey: ["books"], queryFn: fetchBooks });
+  const continuing = continueReadingBook(books.data ?? []);
   const id = useId();
   const fileInput = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -238,6 +242,52 @@ export function LibraryPage() {
         )}
         {books.data?.length === 0 && (
           <p>No books yet. Import an EPUB to start reading.</p>
+        )}
+        {continuing && (
+          <section
+            aria-labelledby={`${id}-continue`}
+            className="rounded-lg border border-stone-300 bg-(--panel-bg) p-4"
+          >
+            <h2 id={`${id}-continue`} className="mb-3 text-lg font-semibold">
+              Continue reading
+            </h2>
+            <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
+              <Link
+                to="/books/$id/read"
+                params={{ id: String(continuing.id) }}
+                aria-label="Resume from cover"
+                className="w-24 shrink-0 sm:w-32"
+              >
+                <Cover key={continuing.id} book={continuing} />
+              </Link>
+              <div className="flex min-w-0 flex-col items-start gap-2">
+                <h3
+                  className="line-clamp-2 text-xl font-semibold wrap-anywhere"
+                  title={continuing.title}
+                >
+                  {continuing.title}
+                </h3>
+                {continuing.authors.length > 0 && (
+                  <p
+                    className="line-clamp-2 text-sm wrap-anywhere"
+                    title={continuing.authors.join(", ")}
+                  >
+                    {continuing.authors.join(", ")}
+                  </p>
+                )}
+                {continuing.progress !== undefined && (
+                  <p className="text-sm">{continuing.progress}%</p>
+                )}
+                <Link
+                  to="/books/$id/read"
+                  params={{ id: String(continuing.id) }}
+                  className="rounded bg-[var(--action-accent)] px-5 py-2 font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-accent)]"
+                >
+                  Resume
+                </Link>
+              </div>
+            </div>
+          </section>
         )}
         {books.data && books.data.length > 0 && (
           <ul
