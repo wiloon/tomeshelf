@@ -5,6 +5,7 @@ import {
   type Page,
   type Request,
 } from "@playwright/test";
+import { expectCoverProgress } from "./cover-progress";
 import { startServer, type TestServer } from "./server";
 
 const test = base.extend<{ server: TestServer }>({
@@ -94,6 +95,11 @@ test("turning a spread saves a debounced position and the library resumes there"
 }) => {
   await setUp(page, "pages");
   await importChapters(page);
+  const gridCard = page
+    .getByRole("list", { name: "Library" })
+    .getByRole("link", { name: new RegExp(chapters) });
+  await expect(gridCard.getByRole("progressbar")).toHaveCount(0);
+  await expect(gridCard).not.toHaveAccessibleName(/%/);
   const id = await openFromLibrary(page);
   const puts = positionPuts(page);
 
@@ -128,9 +134,18 @@ test("turning a spread saves a debounced position and the library resumes there"
   expect(visible).toBe(true);
 
   await page.getByRole("link", { name: "Library", exact: true }).click();
-  await expect(
-    page.locator("li").filter({ hasText: chapters }).getByText(/%/),
-  ).toBeVisible();
+  await expect(gridCard).toBeVisible();
+  const response = await page.request.get(`/api/books/${id}/position`);
+  expect(response.status()).toBe(200);
+  const saved = (await response.json()) as {
+    locations: { totalProgression: number };
+  };
+  const expected = Math.max(
+    0,
+    Math.min(100, Math.floor(saved.locations.totalProgression * 100)),
+  );
+  expect(expected).toBeGreaterThan(0);
+  await expectCoverProgress(gridCard, expected);
 
   const other = await browser.newContext({
     baseURL: server.url,

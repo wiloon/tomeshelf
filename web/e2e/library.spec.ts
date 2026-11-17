@@ -1,5 +1,6 @@
 import path from "node:path";
 import { expect, test } from "@playwright/test";
+import { expectCoverProgress } from "./cover-progress";
 import { startServer, type TestServer } from "./server";
 
 const longTitle =
@@ -80,9 +81,59 @@ test.describe("library layout", () => {
     ).toBeLessThanOrEqual(1);
   });
 
+  test("cover bars expose progress without visible percentages on light and dark covers", async ({
+    page,
+  }) => {
+    await page.route("**/api/books", (route) =>
+      route.fulfill({
+        json: [
+          { id: 1, title: "Unread", authors: ["A. Writer"] },
+          { id: 2, title: "Start", authors: ["A. Writer"], progress: 0 },
+          {
+            id: 3,
+            title: "Middle",
+            authors: ["A. Writer"],
+            progress: 37,
+            savedAt: 1000,
+          },
+          { id: 4, title: "End", authors: ["A. Writer"], progress: 100 },
+        ],
+      }),
+    );
+    await page.route("**/api/books/*/thumbnail", (route) =>
+      route.fulfill({
+        contentType: "image/svg+xml",
+        body: `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="300"><rect width="200" height="300" fill="${route.request().url().includes("/2/") ? "#fff" : "#111"}"/></svg>`,
+      }),
+    );
+    await page.reload();
+    const grid = page.getByRole("list", { name: "Library" });
+    const unread = grid.getByRole("link", { name: /Unread/ });
+    await expect(unread.getByRole("progressbar")).toHaveCount(0);
+    await expect(unread).toHaveAccessibleName("Unread by A. Writer");
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      for (const [title, value] of [
+        ["Start", 0],
+        ["Middle", 37],
+        ["End", 100],
+      ] as const) {
+        await expectCoverProgress(
+          grid.getByRole("link", { name: new RegExp(title) }),
+          value,
+        );
+      }
+      await expectCoverProgress(
+        page.getByRole("region", { name: "Continue reading" }),
+        37,
+      );
+    }
+    await expect(page.getByText(/^\d+%$/)).toHaveCount(0);
+  });
+
   test("book links retain their full accessible names", async ({ page }) => {
     const links = page.getByRole("list", { name: "Library" }).getByRole("link");
-    await expect(links.nth(2)).toHaveAccessibleName("Book 3 by A. Writer 37%");
+    await expect(links.nth(2)).toHaveAccessibleName("37% Book 3 by A. Writer");
     await expect(links.nth(1)).toHaveAccessibleName(
       "山と海の物語 by A. Writer",
     );
@@ -224,6 +275,14 @@ readingTest(
     const grid = page.getByRole("list", { name: "Library" });
     await expect(grid.getByRole("listitem")).toHaveCount(2);
     await expect(card).toHaveCount(0);
+    for (const title of [
+      /A Hand-Made Reading Book/,
+      /A Hand-Made Book of Chapters/,
+    ]) {
+      const link = grid.getByRole("link", { name: title });
+      await expect(link.getByRole("progressbar")).toHaveCount(0);
+      await expect(link).not.toHaveAccessibleName(/%/);
+    }
     await grid.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
     await expect(page.locator("article#tomeshelf-content")).toBeVisible();
     await page
@@ -256,7 +315,6 @@ readingTest(
       }),
     ).toBeVisible();
     await expect(card.getByText("Ada Fixture", { exact: true })).toBeVisible();
-    await expect(card.getByText(/^[0-9]+%$/)).toBeVisible();
     await expect(
       grid.getByRole("link", { name: /A Hand-Made Book of Chapters/ }),
     ).toBeVisible();
@@ -266,7 +324,19 @@ readingTest(
     const id = address?.split("/")[2];
     const res = await page.request.get(`/api/books/${id}/position`);
     expect(res.status()).toBe(200);
-    const saved = (await res.json()) as { locations: { cssSelector: string } };
+    const saved = (await res.json()) as {
+      locations: { cssSelector: string; totalProgression: number };
+    };
+    const expected = Math.max(
+      0,
+      Math.min(100, Math.floor(saved.locations.totalProgression * 100)),
+    );
+    expect(expected).toBeGreaterThan(0);
+    await expectCoverProgress(
+      grid.getByRole("link", { name: /A Hand-Made Book of Chapters/ }),
+      expected,
+    );
+    await expectCoverProgress(card, expected);
     for (const name of ["Resume", "Resume from cover"]) {
       await card.getByRole("link", { name, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
