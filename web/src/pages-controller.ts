@@ -31,6 +31,7 @@ export type PagesControllerOptions = {
   availableWidth: () => number;
   // The text width setting in rem.
   textWidthRem: () => number;
+  wheelTurnsPages: () => boolean;
   // Called when a turn would leave the document.
   onExhausted: (direction: Turn) => void;
   // Called after a real spread turn (not alignment, restore or re-layout).
@@ -270,7 +271,7 @@ export function attachPagesController(
   };
 
   const onWheel = (event: WheelEvent) => {
-    if (event.ctrlKey) {
+    if (event.ctrlKey || !options.wheelTurnsPages()) {
       return;
     }
     const deltaX =

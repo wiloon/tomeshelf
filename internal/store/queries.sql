@@ -60,13 +60,13 @@ RETURNING sha256;
 SELECT EXISTS (SELECT 1 FROM books WHERE sha256 = ?);
 
 -- name: GetReadingSettings :one
-SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout, reading_settings.font
+SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout, reading_settings.font, reading_settings.wheel_turns_pages
 FROM reading_settings JOIN users ON users.id = reading_settings.user_id
 WHERE users.username = ?;
 
 -- name: PutReadingSettings :execrows
-INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout, font)
-SELECT id, sqlc.arg(font_size), sqlc.arg(line_height), sqlc.arg(width), sqlc.arg(theme), sqlc.arg(layout), sqlc.arg(font)
+INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout, font, wheel_turns_pages)
+SELECT id, sqlc.arg(font_size), sqlc.arg(line_height), sqlc.arg(width), sqlc.arg(theme), sqlc.arg(layout), sqlc.arg(font), sqlc.arg(wheel_turns_pages)
 FROM users WHERE username = sqlc.arg(username)
 ON CONFLICT (user_id) DO UPDATE SET
     font_size = excluded.font_size,
@@ -74,7 +74,8 @@ ON CONFLICT (user_id) DO UPDATE SET
     width = excluded.width,
     theme = excluded.theme,
     layout = excluded.layout,
-    font = excluded.font;
+    font = excluded.font,
+    wheel_turns_pages = excluded.wheel_turns_pages;
 
 -- name: GetReadingPosition :one
 SELECT reading_positions.href, reading_positions.progression, reading_positions.total_progression,

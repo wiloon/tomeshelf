@@ -23,6 +23,7 @@ export type ReadingSettings = {
   theme: Theme;
   layout: Layout;
   font: Font;
+  wheelTurnsPages: boolean;
 };
 
 export const defaultFontStack =
@@ -35,6 +36,7 @@ export const defaultSettings: ReadingSettings = {
   theme: "light",
   layout: "pages",
   font: "default",
+  wheelTurnsPages: true,
 };
 
 export function fontFamilyStack(font: Font): string {
@@ -255,6 +257,7 @@ export function applyToPage(settings: ReadingSettings) {
   root.dataset.readingTheme = settings.theme;
   root.dataset.readingLayout = settings.layout;
   root.dataset.readingFont = settings.font;
+  root.dataset.wheelTurnsPages = String(settings.wheelTurnsPages);
 }
 
 // Takes the settings off the root element, so other pages look as before.
@@ -271,6 +274,7 @@ export function clearFromPage() {
   delete root.dataset.readingTheme;
   delete root.dataset.readingLayout;
   delete root.dataset.readingFont;
+  delete root.dataset.wheelTurnsPages;
 }
 
 function Stepper({
@@ -401,6 +405,19 @@ export function SettingsPanel({
             ))}
           </div>
         </fieldset>
+        <label className="flex items-center justify-between gap-4">
+          Wheel turns pages
+          <input
+            type="checkbox"
+            checked={settings.wheelTurnsPages}
+            onChange={(event) =>
+              setSettings({
+                ...settings,
+                wheelTurnsPages: event.target.checked,
+              })
+            }
+          />
+        </label>
         <fieldset className="flex items-center justify-between gap-4">
           <legend className="float-left">Theme</legend>
           <div className="flex gap-3">

@@ -29,6 +29,7 @@ const defaults = {
   theme: "light" as const,
   layout: "pages" as const,
   font: "default" as const,
+  wheelTurnsPages: true,
 };
 
 async function saveSettings(

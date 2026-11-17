@@ -24,6 +24,7 @@ const defaults: {
   width: number;
   theme: "light" | "dark" | "sepia";
   layout: "pages" | "scroll";
+  wheelTurnsPages: boolean;
   font: "default" | "literata" | "charter" | "source-serif-4";
 } = {
   fontSize: 18,
@@ -32,6 +33,7 @@ const defaults: {
   theme: "light",
   layout: "pages",
   font: "default",
+  wheelTurnsPages: true,
 };
 
 async function saveSettings(
@@ -1100,4 +1102,140 @@ test("a fitting figure stays on one page; a tall caption keeps its image whole",
   });
   expect(orphan.headingAloneAtFoot).toBe(false);
   expect(orphan.sameColumn).toBe(true);
+});
+
+async function disableWheel(page: Page) {
+  await page.getByRole("button", { name: "Settings" }).click();
+  const panel = page.getByRole("dialog", { name: "Reading settings" });
+  await panel.getByRole("checkbox", { name: "Wheel turns pages" }).uncheck();
+  await panel.getByRole("button", { name: "Close" }).click();
+}
+
+test("disabled wheel leaves text stationary and events unprevented without saving position", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const id = await openBook(page);
+  await disableWheel(page);
+  await page.waitForTimeout(800);
+  const puts: string[] = [];
+  page.on("request", (req) => {
+    if (
+      req.method() === "PUT" &&
+      req.url().endsWith(`/api/books/${id}/position`)
+    )
+      puts.push(req.url());
+  });
+  const before = await article(page).evaluate((el) => el.scrollLeft);
+  await article(page).hover();
+  for (const [x, y] of [
+    [0, 240],
+    [240, 0],
+  ]) {
+    await page.mouse.wheel(x, y);
+    await page.waitForTimeout(800);
+    expect(await article(page).evaluate((el) => el.scrollLeft)).toBe(before);
+  }
+  for (const [x, y] of [
+    [0, 40],
+    [40, 0],
+  ]) {
+    expect(
+      await article(page).evaluate(
+        (el, [deltaX, deltaY]) => {
+          const event = new WheelEvent("wheel", {
+            deltaX,
+            deltaY,
+            bubbles: true,
+            cancelable: true,
+          });
+          el.dispatchEvent(event);
+          return event.defaultPrevented;
+        },
+        [x, y],
+      ),
+    ).toBe(false);
+  }
+  await page.waitForTimeout(800);
+  expect(puts).toEqual([]);
+});
+
+test("disabled wheel keeps nested tables scrollable", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openSemanticsCommon(page);
+  await disableWheel(page);
+  const table = page.locator("#wide-table");
+  await table.evaluate((el) =>
+    el.scrollIntoView({ inline: "nearest", block: "nearest" }),
+  );
+  await page.waitForTimeout(800);
+  const before = await article(page).evaluate((el) => el.scrollLeft);
+  await table.hover();
+  await page.mouse.wheel(160, 0);
+  await expect
+    .poll(() => table.evaluate((el) => el.scrollLeft))
+    .toBeGreaterThan(0);
+  await page.waitForTimeout(800);
+  expect(await article(page).evaluate((el) => el.scrollLeft)).toBe(before);
+});
+
+test("disabled wheel preserves keys, controls, touch swipes and scrollIntoView", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openBook(page);
+  await disableWheel(page);
+  // Close returns focus to Settings; keys belong to controls until focus leaves.
+  await article(page).click({ position: { x: 100, y: 80 } });
+  await page.keyboard.press("ArrowRight");
+  await expect
+    .poll(() => article(page).evaluate((el) => el.scrollLeft))
+    .toBeGreaterThan(0);
+  const step = await article(page).evaluate((el) => el.scrollLeft);
+  await control(page, "Previous").click();
+  expect(await article(page).evaluate((el) => el.scrollLeft)).toBe(0);
+  await control(page, "Next").click();
+  expect(await article(page).evaluate((el) => el.scrollLeft)).toBeCloseTo(
+    step,
+    0,
+  );
+  await control(page, "Previous").click();
+  await swipeArticle(page, -80);
+  expect(await article(page).evaluate((el) => el.scrollLeft)).toBeCloseTo(
+    step,
+    0,
+  );
+  await control(page, "Previous").click();
+  const last = article(page).locator("[data-tomeshelf-block]").last();
+  await last.evaluate((el) => el.scrollIntoView());
+  await expect
+    .poll(() => article(page).evaluate((el) => el.scrollLeft))
+    .toBeGreaterThan(step);
+  await expect
+    .poll(() =>
+      last.evaluate((el) => {
+        const a = el.closest("article")?.getBoundingClientRect();
+        const b = el.getBoundingClientRect();
+        return a !== undefined && b.left < a.right && b.right > a.left;
+      }),
+    )
+    .toBe(true);
+});
+
+test("scroll layout ignores disabled wheel", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openBook(page);
+  await disableWheel(page);
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("radio", { name: "Scroll", exact: true }).check();
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const box = await article(page).boundingBox();
+  if (!box) throw new Error("article has no box");
+  await page.mouse.move(box.x + 100, box.y + 80);
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+  await page.mouse.wheel(0, 240);
+  await expect
+    .poll(() => page.evaluate(() => window.scrollY))
+    .toBeGreaterThan(0);
 });

@@ -142,6 +142,8 @@ function BookDocument({
   const { settings } = useReadingSettings();
   const textWidthRem = useRef(settings.width);
   textWidthRem.current = settings.width;
+  const wheelTurnsPages = useRef(settings.wheelTurnsPages);
+  wheelTurnsPages.current = settings.wheelTurnsPages;
   const onExhaustedRef = useRef(onExhausted);
   onExhaustedRef.current = onExhausted;
   const onEdgesRef = useRef(onEdges);
@@ -193,6 +195,7 @@ function BookDocument({
       article,
       availableWidth: () => availableArticleWidth(article),
       textWidthRem: () => textWidthRem.current,
+      wheelTurnsPages: () => wheelTurnsPages.current,
       onExhausted: (direction) => onExhaustedRef.current(direction),
       onMove: () => onMoveRef.current(),
     });
