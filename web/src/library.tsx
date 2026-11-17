@@ -148,6 +148,7 @@ export function LibraryPage() {
   const queryClient = useQueryClient();
   const books = useQuery({ queryKey: ["books"], queryFn: fetchBooks });
   const id = useId();
+  const fileInput = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [pending, setPending] = useState(false);
   const [confirming, setConfirming] = useState<Book | null>(null);
@@ -198,19 +199,32 @@ export function LibraryPage() {
   return (
     <div className="flex flex-col gap-6">
       <section className="flex flex-col gap-3">
-        <h2 id={`${id}-heading`} className="text-lg font-semibold">
-          Library
-        </h2>
-        <label htmlFor={`${id}-file`} className="flex flex-col gap-1">
-          Import an EPUB
-          <input
-            id={`${id}-file`}
-            type="file"
-            accept=".epub,application/epub+zip"
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id={`${id}-heading`} className="text-lg font-semibold">
+            Library
+          </h2>
+          <button
+            type="button"
+            className="rounded bg-[var(--action-accent)] px-4 py-2 font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-accent)] disabled:cursor-wait"
             disabled={pending}
-            onChange={onFileChosen}
-          />
+            onClick={() => fileInput.current?.click()}
+          >
+            {pending ? "Importing…" : "Import EPUB"}
+          </button>
+        </div>
+        <label htmlFor={`${id}-file`} className="sr-only">
+          Import an EPUB
         </label>
+        <input
+          ref={fileInput}
+          id={`${id}-file`}
+          className="sr-only"
+          tabIndex={-1}
+          type="file"
+          accept=".epub,application/epub+zip"
+          disabled={pending}
+          onChange={onFileChosen}
+        />
         {outcome?.ok && <p role="status">{outcome.text}</p>}
         {outcome && !outcome.ok && (
           <p role="alert" className="text-red-700">
@@ -222,7 +236,9 @@ export function LibraryPage() {
             The library could not be loaded. Please reload the page.
           </p>
         )}
-        {books.data?.length === 0 && <p>No books yet.</p>}
+        {books.data?.length === 0 && (
+          <p>No books yet. Import an EPUB to start reading.</p>
+        )}
         {books.data && books.data.length > 0 && (
           <ul
             aria-labelledby={`${id}-heading`}

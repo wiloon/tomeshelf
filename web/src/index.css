@@ -3,6 +3,7 @@
 /* The page colours. Only the reading page sets a theme on the root element;
    every other page keeps the light colours. */
 :root {
+  --action-accent: #1d4ed8;
   --page-bg: var(--color-stone-50);
   --page-fg: var(--color-stone-900);
   --page-rule: var(--color-stone-200);
