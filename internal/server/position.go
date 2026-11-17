@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 
 	"github.com/wiloon/tomeshelf/internal/library"
 	"github.com/wiloon/tomeshelf/internal/store"
@@ -62,9 +61,8 @@ func (s *site) getPosition(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+	id, ok := bookID(w, r)
+	if !ok {
 		return
 	}
 	p, err := s.books.ReadingPosition(r.Context(), user, id)
@@ -86,15 +84,14 @@ func (s *site) putPosition(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+	id, ok := bookID(w, r)
+	if !ok {
 		return
 	}
 	var body savePositionJSON
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
 	dec.DisallowUnknownFields()
-	err = dec.Decode(&body)
+	err := dec.Decode(&body)
 	if err == nil {
 		var extra any
 		if end := dec.Decode(&extra); end != io.EOF {

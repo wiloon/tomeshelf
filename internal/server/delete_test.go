@@ -15,9 +15,9 @@ import (
 	"github.com/wiloon/tomeshelf/internal/store"
 )
 
-func (e env) deleteBook(t *testing.T, id int64, cookie *http.Cookie) *http.Response {
+func (e env) deleteBook(t *testing.T, id string, cookie *http.Cookie) *http.Response {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/books/%d", id), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/books/%s", id), nil)
 	if cookie != nil {
 		req.AddCookie(cookie)
 	}
@@ -43,15 +43,15 @@ func noCoverPath(book []byte) string  { return filepath.Join("cache", "covers", 
 
 // requireGone checks that the book with the id answers 404 on every book
 // route and is not listed.
-func (e env) requireGone(t *testing.T, id int64, cookie *http.Cookie) {
+func (e env) requireGone(t *testing.T, id string, cookie *http.Cookie) {
 	t.Helper()
 	if slices.ContainsFunc(e.books(t, cookie), func(b listedBook) bool { return b.ID == id }) {
-		t.Errorf("book %d is still listed", id)
+		t.Errorf("book %s is still listed", id)
 	}
 	for _, path := range []string{
 		thumbnailPath(id),
-		fmt.Sprintf("/api/books/%d/manifest", id),
-		fmt.Sprintf("/api/books/%d/package/OEBPS/text.xhtml", id),
+		fmt.Sprintf("/api/books/%s/manifest", id),
+		fmt.Sprintf("/api/books/%s/package/OEBPS/text.xhtml", id),
 	} {
 		requireJSONError(t, e.get(t, path, cookie), http.StatusNotFound)
 	}
@@ -74,7 +74,7 @@ func TestDeletingABookRemovesItsRowOriginalAndCache(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		id    int64
+		id    string
 		book  []byte
 		cache string
 	}{{coverID, withCover, thumbPath(withCover)}, {noCoverID, withoutCover, noCoverPath(withoutCover)}} {
@@ -92,7 +92,7 @@ func TestDeletingABookRemovesItsRowOriginalAndCache(t *testing.T) {
 	}
 	e.requireOnly(t, kept)
 	if got := e.books(t, cookie); len(got) != 1 || got[0].ID != keptID {
-		t.Errorf("list = %+v, want only book %d", got, keptID)
+		t.Errorf("list = %+v, want only book %s", got, keptID)
 	}
 }
 
@@ -107,7 +107,7 @@ func TestDeletingUnknownOrOthersBooksAnswers404AndChangesNothing(t *testing.T) {
 	requireStatus(t, e.deleteBook(t, deleted, admin), http.StatusNoContent)
 	cache := e.cacheFiles(t)
 
-	for name, id := range map[string]int64{"unknown": 9999, "already deleted": deleted, "another user's": othersID} {
+	for name, id := range map[string]string{"unknown": absentID, "already deleted": deleted, "another user's": othersID} {
 		t.Run(name, func(t *testing.T) {
 			res := e.deleteBook(t, id, admin)
 			requireJSONError(t, res, http.StatusNotFound)
@@ -119,7 +119,7 @@ func TestDeletingUnknownOrOthersBooksAnswers404AndChangesNothing(t *testing.T) {
 
 	e.requireOnly(t, book)
 	if got := e.books(t, other); len(got) != 1 || got[0].ID != othersID {
-		t.Errorf("the other user's list = %+v, want book %d", got, othersID)
+		t.Errorf("the other user's list = %+v, want book %s", got, othersID)
 	}
 	if got := e.cacheFiles(t); len(got) != len(cache) || !e.exists(t, thumbPath(book)) {
 		t.Errorf("cache/ = %v, want %v", got, cache)
@@ -134,7 +134,7 @@ func TestSignedOutAndCrossSiteDeletionsAreRefused(t *testing.T) {
 
 	requireJSONError(t, e.deleteBook(t, id, nil), http.StatusUnauthorized)
 	requireJSONError(t, e.deleteBook(t, id, &http.Cookie{Name: "tomeshelf_session", Value: "forged"}), http.StatusUnauthorized)
-	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/books/%d", id), nil)
+	req := httptest.NewRequest(http.MethodDelete, fmt.Sprintf("/api/books/%s", id), nil)
 	req.AddCookie(cookie)
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	requireStatus(t, e.do(t, req), http.StatusForbidden)
@@ -177,7 +177,7 @@ func TestReimportingADeletedBookIsAFreshImportWithARebuiltThumbnail(t *testing.T
 
 	again := e.importedID(t, cookie, book)
 	if got := e.books(t, cookie); len(got) != 1 || got[0].ID != again {
-		t.Errorf("list = %+v, want only the re-imported book %d", got, again)
+		t.Errorf("list = %+v, want only the re-imported book %s", got, again)
 	}
 	if e.exists(t, thumbPath(book)) {
 		t.Fatal("the thumbnail is cached before it was requested")
@@ -191,8 +191,8 @@ func TestReimportingADeletedBookIsAFreshImportWithARebuiltThumbnail(t *testing.T
 // failingDelete fails every DeleteBook.
 type failingDelete struct{ *store.Store }
 
-func (failingDelete) DeleteBook(context.Context, string, int64) (string, error) {
-	return "", errors.New("injected delete failure")
+func (failingDelete) DeleteBook(context.Context, string, string) error {
+	return errors.New("injected delete failure")
 }
 
 func TestAFailedRowDeletionAnswers500AndChangesNothing(t *testing.T) {
@@ -220,15 +220,15 @@ func TestAFailedFileRemovalStillDeletesAndAReimportReusesTheLeftovers(t *testing
 		name  string
 		book  []byte
 		cache func([]byte) string
-		check func(t *testing.T, e env, id int64, cookie *http.Cookie) string
+		check func(t *testing.T, e env, id string, cookie *http.Cookie) string
 	}{
 		{"with a cover", coverEPUB(t, "Leftover Cover", &cover{"cover.jpg", "image/jpeg", jpegImage(t, 600, 900)}), thumbPath,
-			func(t *testing.T, e env, id int64, cookie *http.Cookie) string {
+			func(t *testing.T, e env, id string, cookie *http.Cookie) string {
 				_, thumb := requireThumbnail(t, e.thumbnail(t, id, cookie, ""), 600, 900)
 				return thumb
 			}},
 		{"without a cover", coverEPUB(t, "Leftover None", nil), noCoverPath,
-			func(t *testing.T, e env, id int64, cookie *http.Cookie) string {
+			func(t *testing.T, e env, id string, cookie *http.Cookie) string {
 				requireNoCover(t, e.thumbnail(t, id, cookie, ""))
 				return ""
 			}},

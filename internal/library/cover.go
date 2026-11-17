@@ -51,28 +51,28 @@ func noCover(err error) error {
 // missing from the cache is made from the original and cached under its
 // SHA-256's lock, once a row is known to still name it; any other failure
 // caches nothing, so the next call tries again.
-func (l *Library) Thumbnail(ctx context.Context, username string, id int64) ([]byte, error) {
+func (l *Library) Thumbnail(ctx context.Context, username string, id string) ([]byte, error) {
 	book, err := l.store.Book(ctx, username, id)
 	if err != nil {
 		return nil, err
 	}
-	if thumb, err := l.cachedThumbnail(book.SHA256); thumb != nil || err != nil {
+	if thumb, err := l.cachedThumbnail(book.ID); thumb != nil || err != nil {
 		return thumb, err
 	}
 
-	unlock := l.locks.lock(book.SHA256)
+	unlock := l.locks.lock(book.ID)
 	defer unlock()
-	named, err := l.store.BookFileNamed(ctx, book.SHA256)
+	named, err := l.store.BookFileNamed(ctx, book.ID)
 	if err != nil {
 		return nil, err
 	}
 	if !named {
 		return nil, store.ErrUnknownBook
 	}
-	if thumb, err := l.cachedThumbnail(book.SHA256); thumb != nil || err != nil {
+	if thumb, err := l.cachedThumbnail(book.ID); thumb != nil || err != nil {
 		return thumb, err
 	}
-	original := filepath.Join(l.booksDir, book.SHA256+".epub")
+	original := filepath.Join(l.booksDir, book.ID+".epub")
 	if _, err := os.Stat(original); err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (l *Library) Thumbnail(ctx context.Context, username string, id int64) ([]b
 		return nil, cerr
 	}
 	if errors.Is(err, ErrNoCover) {
-		if err := l.writeCache(filepath.Join(l.coversDir, book.SHA256+".none"), nil); err != nil {
+		if err := l.writeCache(filepath.Join(l.coversDir, book.ID+".none"), nil); err != nil {
 			return nil, err
 		}
 		return nil, err
@@ -89,7 +89,7 @@ func (l *Library) Thumbnail(ctx context.Context, username string, id int64) ([]b
 	if err != nil {
 		return nil, err
 	}
-	if err := l.writeCache(filepath.Join(l.coversDir, book.SHA256+".jpg"), thumb); err != nil {
+	if err := l.writeCache(filepath.Join(l.coversDir, book.ID+".jpg"), thumb); err != nil {
 		return nil, err
 	}
 	return thumb, nil

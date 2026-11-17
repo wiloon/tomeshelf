@@ -10,11 +10,7 @@ export function continueReadingBook<
       book.savedAt > latest.savedAt ||
       (book.savedAt === latest.savedAt &&
         (book.importedAt > latest.importedAt ||
-          (book.importedAt === latest.importedAt &&
-            // Legacy decimal ids still need numeric order until the storage
-            // migration. SHA-256 ids all have the same length.
-            (book.id.length > latest.id.length ||
-              (book.id.length === latest.id.length && book.id > latest.id)))))
+          (book.importedAt === latest.importedAt && book.id > latest.id)))
     ) {
       latest = book;
     }

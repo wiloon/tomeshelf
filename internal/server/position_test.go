@@ -3,7 +3,6 @@ package server_test
 import (
 	"archive/zip"
 	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -14,17 +13,13 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/pressly/goose/v3"
-
-	"github.com/wiloon/tomeshelf/internal/store"
 )
 
-func positionPath(id int64) string {
-	return fmt.Sprintf("/api/books/%d/position", id)
+func positionPath(id string) string {
+	return fmt.Sprintf("/api/books/%s/position", id)
 }
 
-func (e env) putPosition(t *testing.T, id int64, c *http.Cookie, body string) *http.Response {
+func (e env) putPosition(t *testing.T, id string, c *http.Cookie, body string) *http.Response {
 	t.Helper()
 	req := jsonRequest(http.MethodPut, positionPath(id), body)
 	if c != nil {
@@ -33,7 +28,7 @@ func (e env) putPosition(t *testing.T, id int64, c *http.Cookie, body string) *h
 	return e.do(t, req)
 }
 
-func (e env) getPosition(t *testing.T, id int64, c *http.Cookie) *http.Response {
+func (e env) getPosition(t *testing.T, id string, c *http.Cookie) *http.Response {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, positionPath(id), nil)
 	if c != nil {
@@ -42,7 +37,7 @@ func (e env) getPosition(t *testing.T, id int64, c *http.Cookie) *http.Response 
 	return e.do(t, req)
 }
 
-func readingOrderHref(t *testing.T, e env, id int64, c *http.Cookie, index int) string {
+func readingOrderHref(t *testing.T, e env, id string, c *http.Cookie, index int) string {
 	t.Helper()
 	res := e.get(t, manifestPath(id), c)
 	requireStatus(t, res, http.StatusOK)
@@ -265,15 +260,42 @@ func TestAnotherUserCannotReadOrOverwriteAPosition(t *testing.T) {
 	other := e.otherUser(t, "other")
 	book := fixture(t, "chapters.epub")
 	adminID := e.importedID(t, admin, book)
-	otherID := e.importedID(t, other, book)
+	stranger := e.otherUser(t, "stranger")
 	href := readingOrderHref(t, e, adminID, admin, 0)
 	requireStatus(t, e.putPosition(t, adminID, admin, saveBody("tab-a", 1, href, 0.3, "")), http.StatusNoContent)
 
-	requireJSONError(t, e.getPosition(t, adminID, other), http.StatusNotFound)
-	requireJSONError(t, e.putPosition(t, adminID, other, saveBody("tab-b", 1, href, 0.9, "")), http.StatusNotFound)
+	// A user without the book can neither read nor write a position for it.
+	requireJSONError(t, e.getPosition(t, adminID, stranger), http.StatusNotFound)
+	requireJSONError(t, e.putPosition(t, adminID, stranger, saveBody("tab-b", 1, href, 0.9, "")), http.StatusNotFound)
 
-	requireStatus(t, e.getPosition(t, adminID, admin), http.StatusOK)
+	// A user who imported the same file has the same id and no position yet.
+	otherID := e.importedID(t, other, book)
+	if otherID != adminID {
+		t.Fatalf("same file got ids %s and %s", adminID, otherID)
+	}
 	requireJSONError(t, e.getPosition(t, otherID, other), http.StatusNotFound)
+	requireStatus(t, e.putPosition(t, otherID, other, saveBody("tab-a", 1, href, 0.9, "")), http.StatusNoContent)
+
+	progression := func(c *http.Cookie) float64 {
+		t.Helper()
+		res := e.getPosition(t, adminID, c)
+		requireStatus(t, res, http.StatusOK)
+		var loc struct {
+			Locations struct {
+				Progression float64 `json:"progression"`
+			} `json:"locations"`
+		}
+		if err := json.Unmarshal([]byte(body(t, res)), &loc); err != nil {
+			t.Fatal(err)
+		}
+		return loc.Locations.Progression
+	}
+	if got := progression(admin); got != 0.3 {
+		t.Errorf("admin progression = %g, want 0.3 untouched by the other user's save", got)
+	}
+	if got := progression(other); got != 0.9 {
+		t.Errorf("other progression = %g, want 0.9", got)
+	}
 }
 
 func TestAnOlderSequenceFromTheSameTabIsIgnoredAndAnotherTabWins(t *testing.T) {
@@ -387,23 +409,23 @@ func TestBooksReportAcceptedSaveTimesInMilliseconds(t *testing.T) {
 	hrefB := readingOrderHref(t, e, b, c, 0)
 	now := time.UnixMilli(1700000000123)
 	e.store.Now = func() time.Time { return now }
-	check := func(id int64, want *int64) {
+	check := func(id string, want *int64) {
 		t.Helper()
 		for _, book := range e.books(t, c) {
 			if book.ID == id {
 				if want == nil {
 					if book.SavedAt != nil {
-						t.Fatalf("book %d savedAt = %d, want absent", id, *book.SavedAt)
+						t.Fatalf("book %s savedAt = %d, want absent", id, *book.SavedAt)
 					}
 					return
 				}
 				if book.SavedAt == nil || *book.SavedAt != *want {
-					t.Fatalf("book %d savedAt = %v, want %d", id, book.SavedAt, *want)
+					t.Fatalf("book %s savedAt = %v, want %d", id, book.SavedAt, *want)
 				}
 				return
 			}
 		}
-		t.Fatalf("missing book %d", id)
+		t.Fatalf("missing book %s", id)
 	}
 	check(a, nil)
 	check(b, nil)
@@ -463,11 +485,9 @@ func TestMigratedReadingPositionHasNoSaveTimeUntilAcceptedSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider, err := goose.NewProvider(goose.DialectSQLite3, raw, store.Migrations())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := provider.DownTo(context.Background(), 6); err != nil {
+	// Positions saved before migration 7 have no save time. Migration 9 cannot
+	// be undone, so a missing time is set directly.
+	if _, err := raw.Exec("UPDATE reading_positions SET saved_at = NULL"); err != nil {
 		t.Fatal(err)
 	}
 	if err := raw.Close(); err != nil {
