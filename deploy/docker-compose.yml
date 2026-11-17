@@ -6,7 +6,7 @@ services:
   # root. This one-shot container hands the volume to uid 65532, so tomeshelf
   # itself never runs as root.
   data-permissions:
-    image: busybox:1.37
+    image: busybox:1.38
     user: root
     command: chown 65532:65532 /var/lib/tomeshelf
     volumes:
