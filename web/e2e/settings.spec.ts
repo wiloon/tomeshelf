@@ -657,7 +657,9 @@ test("returning to a cached document scrolls its fragment after retained setting
     document.documentElement.style.overflowAnchor = "none";
   });
   await page.getByRole("link", { name: "Library" }).click();
-  await expect(page.getByLabel("Import an EPUB")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Import EPUB", exact: true }),
+  ).toBeVisible();
   await expect(page.locator("html")).not.toHaveAttribute("data-reading-theme");
   await page.evaluate(() => {
     const original = Element.prototype.scrollIntoView;
@@ -878,7 +880,9 @@ test("a change made just before moving within the app, or before closing the pag
   await page.getByRole("link", { name: "Next" }).click();
   await expect(article(page)).toContainText(documents.epigraph.text);
   await page.getByRole("link", { name: "Library" }).click();
-  await expect(page.getByLabel("Import an EPUB")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Import EPUB", exact: true }),
+  ).toBeVisible();
   await expect.poll(() => saved(page.request)).toMatchObject({ fontSize: 19 });
 
   await openDocument(page, id, documents.letter);

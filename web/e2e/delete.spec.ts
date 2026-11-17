@@ -101,12 +101,16 @@ test("a book is deleted after confirming, and cancelling keeps it", async ({
   expect((await answered).status()).toBe(204);
   await expect(dialog).toBeHidden();
   await expect(entry(page)).toHaveCount(0);
-  await expect(page.getByText("No books yet.")).toBeVisible();
+  await expect(
+    page.getByText("No books yet. Import an EPUB to start reading."),
+  ).toBeVisible();
   await expect(page.getByRole("status")).toHaveText(`Deleted ${title}.`);
   expect(deletes).toHaveLength(1);
 
   await page.reload();
-  await expect(page.getByText("No books yet.")).toBeVisible();
+  await expect(
+    page.getByText("No books yet. Import an EPUB to start reading."),
+  ).toBeVisible();
 
   await importTimeMachine(page);
   await expectCover(page);
