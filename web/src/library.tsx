@@ -17,6 +17,7 @@ type Book = {
   authors: string[];
   progress?: number;
   savedAt?: number;
+  importedAt: number;
 };
 
 type Outcome = { ok: boolean; text: string };

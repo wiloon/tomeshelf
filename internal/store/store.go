@@ -201,6 +201,8 @@ func (s *Store) ResetPassword(ctx context.Context, username, passwordHash string
 // the user has a stored reading position for the book. SavedAt is the Unix
 // millisecond time of its last accepted save, absent for pre-migration positions.
 type Book struct {
+	// ImportedAt is the Unix second when this book entered the user's library.
+	ImportedAt       int64
 	ID               int64
 	SHA256           string
 	Title            string
@@ -220,12 +222,13 @@ func (s *Store) AddBook(ctx context.Context, username string, b Book) (Book, err
 	if err != nil {
 		return Book{}, err
 	}
+	b.ImportedAt = s.Now().Unix()
 	id, err := s.q.InsertBook(ctx, dbq.InsertBookParams{
 		Username:   username,
 		Sha256:     b.SHA256,
 		Title:      b.Title,
 		Authors:    string(authors),
-		ImportedAt: s.Now().Unix(),
+		ImportedAt: b.ImportedAt,
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return Book{}, ErrBookExists
@@ -246,7 +249,7 @@ func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
 	}
 	books := make([]Book, 0, len(rows))
 	for _, row := range rows {
-		b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title}
+		b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title, ImportedAt: row.ImportedAt}
 		if err := json.Unmarshal([]byte(row.Authors), &b.Authors); err != nil {
 			return nil, fmt.Errorf("book %d authors: %w", row.ID, err)
 		}
@@ -273,7 +276,7 @@ func (s *Store) Book(ctx context.Context, username string, id int64) (Book, erro
 	if err != nil {
 		return Book{}, err
 	}
-	b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title}
+	b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title, ImportedAt: row.ImportedAt}
 	if err := json.Unmarshal([]byte(row.Authors), &b.Authors); err != nil {
 		return Book{}, fmt.Errorf("book %d authors: %w", row.ID, err)
 	}

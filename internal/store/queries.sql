@@ -47,7 +47,7 @@ WHERE users.username = ?
 ORDER BY books.title COLLATE NOCASE, books.id;
 
 -- name: GetBook :one
-SELECT books.id, books.sha256, books.title, books.authors
+SELECT books.id, books.sha256, books.title, books.authors, books.imported_at
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ? AND books.id = ?;
 
@@ -123,7 +123,7 @@ ON CONFLICT (book_id, tab_id) DO UPDATE SET
     highest_sequence = excluded.highest_sequence;
 
 -- name: ListBooksWithProgress :many
-SELECT books.id, books.sha256, books.title, books.authors, reading_positions.total_progression, reading_positions.saved_at
+SELECT books.id, books.sha256, books.title, books.authors, books.imported_at, reading_positions.total_progression, reading_positions.saved_at
 FROM books
 JOIN users ON users.id = books.user_id
 LEFT JOIN reading_positions ON reading_positions.book_id = books.id
