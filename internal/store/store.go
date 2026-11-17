@@ -51,7 +51,7 @@ func Migrations() fs.FS {
 type Store struct {
 	db *sql.DB
 	q  *dbq.Queries
-	// Now is the clock sessions are created and checked against.
+	// Now is the clock for sessions, imports and accepted reading position saves.
 	Now func() time.Time
 }
 
@@ -198,13 +198,15 @@ func (s *Store) ResetPassword(ctx context.Context, username, passwordHash string
 
 // Book is one book in a user's library. SHA256 is the hex digest of its
 // original EPUB, which names the file (ADR-0007). TotalProgression is set when
-// the user has a stored reading position for the book.
+// the user has a stored reading position for the book. SavedAt is the Unix
+// millisecond time of its last accepted save, absent for pre-migration positions.
 type Book struct {
 	ID               int64
 	SHA256           string
 	Title            string
 	Authors          []string
 	TotalProgression *float64
+	SavedAt          *int64
 }
 
 // AddBook adds the book to the user's library and returns it with its id. It
@@ -251,6 +253,10 @@ func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
 		if row.TotalProgression.Valid {
 			tp := row.TotalProgression.Float64
 			b.TotalProgression = &tp
+		}
+		if row.SavedAt.Valid {
+			savedAt := row.SavedAt.Int64
+			b.SavedAt = &savedAt
 		}
 		books = append(books, b)
 	}
@@ -422,6 +428,7 @@ func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID
 			return nil
 		}
 		n, err := q.UpsertReadingPosition(ctx, dbq.UpsertReadingPositionParams{
+			SavedAt:          sql.NullInt64{Int64: s.Now().UnixMilli(), Valid: true},
 			Href:             p.Href,
 			Progression:      p.Progression,
 			TotalProgression: p.TotalProgression,

@@ -356,7 +356,7 @@ func (q *Queries) ListBooks(ctx context.Context, username string) ([]ListBooksRo
 }
 
 const listBooksWithProgress = `-- name: ListBooksWithProgress :many
-SELECT books.id, books.sha256, books.title, books.authors, reading_positions.total_progression
+SELECT books.id, books.sha256, books.title, books.authors, reading_positions.total_progression, reading_positions.saved_at
 FROM books
 JOIN users ON users.id = books.user_id
 LEFT JOIN reading_positions ON reading_positions.book_id = books.id
@@ -370,6 +370,7 @@ type ListBooksWithProgressRow struct {
 	Title            string
 	Authors          string
 	TotalProgression sql.NullFloat64
+	SavedAt          sql.NullInt64
 }
 
 func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([]ListBooksWithProgressRow, error) {
@@ -387,6 +388,7 @@ func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([
 			&i.Title,
 			&i.Authors,
 			&i.TotalProgression,
+			&i.SavedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -460,13 +462,13 @@ func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHash
 const upsertReadingPosition = `-- name: UpsertReadingPosition :execrows
 INSERT INTO reading_positions (
     book_id, href, progression, total_progression,
-    css_selector, character_offset, text_before, text_highlight, text_after
+    css_selector, character_offset, text_before, text_highlight, text_after, saved_at
 )
 SELECT books.id, ?1, ?2, ?3,
        ?4, ?5,
-       ?6, ?7, ?8
+       ?6, ?7, ?8, ?9
 FROM books JOIN users ON users.id = books.user_id
-WHERE users.username = ?9 AND books.id = ?10
+WHERE users.username = ?10 AND books.id = ?11
 ON CONFLICT (book_id) DO UPDATE SET
     href = excluded.href,
     progression = excluded.progression,
@@ -475,7 +477,8 @@ ON CONFLICT (book_id) DO UPDATE SET
     character_offset = excluded.character_offset,
     text_before = excluded.text_before,
     text_highlight = excluded.text_highlight,
-    text_after = excluded.text_after
+    text_after = excluded.text_after,
+    saved_at = excluded.saved_at
 `
 
 type UpsertReadingPositionParams struct {
@@ -487,6 +490,7 @@ type UpsertReadingPositionParams struct {
 	TextBefore       sql.NullString
 	TextHighlight    sql.NullString
 	TextAfter        sql.NullString
+	SavedAt          sql.NullInt64
 	Username         string
 	BookID           int64
 }
@@ -501,6 +505,7 @@ func (q *Queries) UpsertReadingPosition(ctx context.Context, arg UpsertReadingPo
 		arg.TextBefore,
 		arg.TextHighlight,
 		arg.TextAfter,
+		arg.SavedAt,
 		arg.Username,
 		arg.BookID,
 	)

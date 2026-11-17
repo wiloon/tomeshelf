@@ -88,11 +88,11 @@ WHERE users.username = ? AND books.id = ?;
 -- name: UpsertReadingPosition :execrows
 INSERT INTO reading_positions (
     book_id, href, progression, total_progression,
-    css_selector, character_offset, text_before, text_highlight, text_after
+    css_selector, character_offset, text_before, text_highlight, text_after, saved_at
 )
 SELECT books.id, sqlc.arg(href), sqlc.arg(progression), sqlc.arg(total_progression),
        sqlc.arg(css_selector), sqlc.arg(character_offset),
-       sqlc.arg(text_before), sqlc.arg(text_highlight), sqlc.arg(text_after)
+       sqlc.arg(text_before), sqlc.arg(text_highlight), sqlc.arg(text_after), sqlc.arg(saved_at)
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = sqlc.arg(username) AND books.id = sqlc.arg(book_id)
 ON CONFLICT (book_id) DO UPDATE SET
@@ -103,7 +103,8 @@ ON CONFLICT (book_id) DO UPDATE SET
     character_offset = excluded.character_offset,
     text_before = excluded.text_before,
     text_highlight = excluded.text_highlight,
-    text_after = excluded.text_after;
+    text_after = excluded.text_after,
+    saved_at = excluded.saved_at;
 
 -- name: GetTabHighestSequence :one
 SELECT reading_position_tabs.highest_sequence
@@ -121,7 +122,7 @@ ON CONFLICT (book_id, tab_id) DO UPDATE SET
     highest_sequence = excluded.highest_sequence;
 
 -- name: ListBooksWithProgress :many
-SELECT books.id, books.sha256, books.title, books.authors, reading_positions.total_progression
+SELECT books.id, books.sha256, books.title, books.authors, reading_positions.total_progression, reading_positions.saved_at
 FROM books
 JOIN users ON users.id = books.user_id
 LEFT JOIN reading_positions ON reading_positions.book_id = books.id

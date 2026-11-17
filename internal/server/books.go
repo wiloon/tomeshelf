@@ -17,6 +17,7 @@ import (
 )
 
 type bookJSON struct {
+	SavedAt  *int64   `json:"savedAt,omitempty"`
 	ID       int64    `json:"id"`
 	Title    string   `json:"title"`
 	Authors  []string `json:"authors"`
@@ -24,7 +25,7 @@ type bookJSON struct {
 }
 
 func toBookJSON(b store.Book) bookJSON {
-	out := bookJSON{ID: b.ID, Title: b.Title, Authors: b.Authors}
+	out := bookJSON{ID: b.ID, Title: b.Title, Authors: b.Authors, SavedAt: b.SavedAt}
 	if b.TotalProgression != nil {
 		p := int(math.Floor(*b.TotalProgression * 100))
 		if p > 100 {
