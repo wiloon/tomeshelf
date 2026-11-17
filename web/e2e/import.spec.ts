@@ -413,7 +413,11 @@ test("reader cancels file drops without importing or showing an overlay", async 
     if (request.method() === "POST" && request.url().endsWith("/api/books"))
       requests++;
   });
+  await dragFiles(page, "dragenter");
   expect(await dragFiles(page, "dragover")).toBe(true);
+  await expect(
+    page.getByText("Drop an EPUB to import it", { exact: true }),
+  ).toHaveCount(0);
   expect(await dragFiles(page, "drop")).toBe(true);
   await expect(
     page.getByText("Drop an EPUB to import it", { exact: true }),
