@@ -1,6 +1,13 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type ChangeEvent,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import { continueReadingBook } from "./continue-reading";
 
@@ -155,6 +162,41 @@ export function LibraryPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [pending, setPending] = useState(false);
+  const importing = useRef(false);
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    let depth = 0;
+    const enter = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      depth += 1;
+      setDragging(true);
+    };
+    const leave = (event: DragEvent) => {
+      if (!event.dataTransfer?.types.includes("Files")) return;
+      depth = Math.max(0, depth - 1);
+      if (depth === 0) reset();
+    };
+    const reset = () => {
+      depth = 0;
+      setDragging(false);
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") reset();
+    };
+    window.addEventListener("dragenter", enter);
+    window.addEventListener("dragleave", leave);
+    window.addEventListener("drop", reset);
+    window.addEventListener("keydown", key);
+    window.addEventListener("blur", reset);
+    return () => {
+      window.removeEventListener("dragenter", enter);
+      window.removeEventListener("dragleave", leave);
+      window.removeEventListener("drop", reset);
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("blur", reset);
+    };
+  }, []);
   const [confirming, setConfirming] = useState<Book | null>(null);
 
   async function onDeleteConfirmed(book: Book) {
@@ -178,12 +220,9 @@ export function LibraryPage() {
     await queryClient.invalidateQueries({ queryKey: ["books"] });
   }
 
-  async function onFileChosen(event: ChangeEvent<HTMLInputElement>) {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    if (!file) {
-      return;
-    }
+  async function runImport(file: File) {
+    if (importing.current) return;
+    importing.current = true;
     setOutcome(null);
     setPending(true);
     try {
@@ -194,14 +233,42 @@ export function LibraryPage() {
         text: "tomeshelf could not be reached. Please try again.",
       });
     } finally {
-      input.value = "";
+      if (fileInput.current) fileInput.current.value = "";
+      importing.current = false;
       setPending(false);
       await queryClient.invalidateQueries({ queryKey: ["books"] });
     }
   }
 
+  function onFileChosen(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    if (file) void runImport(file);
+  }
+
+  const onDrop = useEffectEvent((event: DragEvent) => {
+    if (importing.current) return;
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    if (files.length === 0) return;
+    const file = files.find(
+      (file) =>
+        /\.epub$/i.test(file.name) || file.type === "application/epub+zip",
+    );
+    if (file) void runImport(file);
+    else setOutcome({ ok: false, text: "Please choose an EPUB file." });
+  });
+  useEffect(() => {
+    const drop = (event: DragEvent) => onDrop(event);
+    window.addEventListener("drop", drop);
+    return () => window.removeEventListener("drop", drop);
+  }, []);
+
   return (
     <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-6">
+      {dragging && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center border-4 border-dashed border-[var(--action-accent)] bg-(--page-bg) text-xl font-semibold">
+          Drop an EPUB to import it
+        </div>
+      )}
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id={`${id}-heading`} className="text-lg font-semibold">

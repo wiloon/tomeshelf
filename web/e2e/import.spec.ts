@@ -1,5 +1,6 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { test as base, expect } from "@playwright/test";
+import { test as base, expect, type Page } from "@playwright/test";
 import { maxBookMB, startServer, type TestServer } from "./server";
 
 // Each attempt gets its own server, so the library starts empty.
@@ -215,4 +216,212 @@ test("library heading has an accessible primary action without mobile overflow",
     console.log(`${theme} import button contrast: ${ratio.toFixed(2)}:1`);
     expect(ratio).toBeGreaterThanOrEqual(4.5);
   }
+});
+
+async function dragFiles(page: Page, type: string, names = ["epub3.epub"]) {
+  const files = await Promise.all(
+    names.map(async (name) => ({
+      name,
+      bytes: [
+        ...(name.endsWith(".epub")
+          ? await readFile(path.join(books, name))
+          : Buffer.from("plain text")),
+      ],
+      mime: name.endsWith(".epub") ? "application/epub+zip" : "text/plain",
+    })),
+  );
+  return page.evaluate(
+    ({ type, files }) => {
+      const dataTransfer = new DataTransfer();
+      for (const file of files)
+        dataTransfer.items.add(
+          new File([new Uint8Array(file.bytes)], file.name, {
+            type: file.mime,
+          }),
+        );
+      const event = new DragEvent(type, {
+        bubbles: true,
+        cancelable: true,
+        dataTransfer,
+      });
+      document.body.dispatchEvent(event);
+      return event.defaultPrevented;
+    },
+    { type, files },
+  );
+}
+
+async function openLibrary(page: Page) {
+  await page.request.post("/api/setup", {
+    data: { username: "reader", password: "import password" },
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("button", { name: "Import EPUB", exact: true }),
+  ).toBeEnabled();
+}
+
+test("file drag overlay leaves with the drag, Escape and the library route", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "epub3.epub"));
+  await expect(page.getByRole("status")).toBeVisible();
+  const overlay = page.getByText("Drop an EPUB to import it", { exact: true });
+  await dragFiles(page, "dragenter");
+  await expect(overlay).toBeVisible();
+  // Moving between descendants must not hide the page-wide target.
+  await dragFiles(page, "dragenter");
+  await dragFiles(page, "dragleave");
+  await expect(overlay).toBeVisible();
+  const bounds = await overlay.boundingBox();
+  expect(bounds).toEqual({ x: 0, y: 0, width: 1280, height: 720 });
+  await dragFiles(page, "dragleave");
+  await expect(overlay).toHaveCount(0);
+  await dragFiles(page, "dragenter");
+  await page.keyboard.press("Escape");
+  await expect(overlay).toHaveCount(0);
+  await dragFiles(page, "dragenter");
+  await page
+    .getByRole("link", { name: /A Hand-Made EPUB 3/ })
+    .click({ force: true });
+  await expect(page.locator("article#tomeshelf-content")).toBeVisible();
+  await expect(overlay).toHaveCount(0);
+});
+
+test("EPUB drops share import busy state and recover after success and failure", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  let requests = 0;
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/books") && request.method() === "POST")
+      requests++;
+  });
+  for (const fail of [false, true]) {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route("**/api/books", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      await held;
+      if (fail)
+        await route.fulfill({
+          status: 400,
+          json: { error: "Import refused." },
+        });
+      else await route.continue();
+    });
+    await dragFiles(page, "drop");
+    const busy = page.getByRole("button", { name: "Importing…" });
+    await expect(busy).toBeDisabled();
+    await expect(page.getByLabel("Import an EPUB")).toBeDisabled();
+    expect(requests).toBe(fail ? 2 : 1);
+    release();
+    await expect(
+      page.getByRole("button", { name: "Import EPUB", exact: true }),
+    ).toBeEnabled();
+    if (fail)
+      await expect(page.getByRole("alert")).toHaveText("Import refused.");
+    else {
+      await expect(page.getByRole("status")).toHaveText(
+        "Imported A Hand-Made EPUB 3.",
+      );
+      await expect(page.getByRole("list", { name: "Library" })).toContainText(
+        "A Hand-Made EPUB 3",
+      );
+    }
+    await page.unroute("**/api/books");
+  }
+});
+
+test("drops reject non-EPUBs and choose only the first EPUB", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  const sent: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().endsWith("/api/books") && request.method() === "POST")
+      sent.push(request.url());
+  });
+  for (const names of [["notes.txt"], ["one.txt", "two.txt"]]) {
+    await dragFiles(page, "drop", names);
+    await expect(page.getByRole("alert")).toHaveText(
+      "Please choose an EPUB file.",
+    );
+    expect(sent).toHaveLength(0);
+  }
+  await dragFiles(page, "drop", ["notes.txt", "epub3.epub", "broken.epub"]);
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported A Hand-Made EPUB 3.",
+  );
+  expect(sent).toHaveLength(1);
+  // The text is invalid and the second EPUB is broken: only the first EPUB can produce this success.
+});
+
+test("drops during an import leave its request and messages untouched", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  let requests = 0;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route("**/api/books", async (route) => {
+    if (route.request().method() === "POST") {
+      requests++;
+      await held;
+    }
+    await route.continue();
+  });
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "epub3.epub"));
+  await expect(page.getByRole("button", { name: "Importing…" })).toBeDisabled();
+  for (const names of [["broken.epub"], ["notes.txt"]]) {
+    await dragFiles(page, "drop", names);
+    await expect(
+      page.getByRole("button", { name: "Importing…" }),
+    ).toBeDisabled();
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(requests).toBe(1);
+  }
+  release();
+  await expect(page.getByRole("status")).toHaveText(
+    "Imported A Hand-Made EPUB 3.",
+  );
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("reader cancels file drops without importing or showing an overlay", async ({
+  page,
+}) => {
+  await openLibrary(page);
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "epub3.epub"));
+  await expect(page.getByRole("status")).toBeVisible();
+  await page.getByRole("link", { name: /A Hand-Made EPUB 3/ }).click();
+  await expect(page.locator("article#tomeshelf-content")).toBeVisible();
+  const url = page.url();
+  let requests = 0;
+  page.on("request", (request) => {
+    if (request.method() === "POST" && request.url().endsWith("/api/books"))
+      requests++;
+  });
+  await dragFiles(page, "dragenter");
+  expect(await dragFiles(page, "dragover")).toBe(true);
+  await expect(
+    page.getByText("Drop an EPUB to import it", { exact: true }),
+  ).toHaveCount(0);
+  expect(await dragFiles(page, "drop")).toBe(true);
+  await expect(
+    page.getByText("Drop an EPUB to import it", { exact: true }),
+  ).toHaveCount(0);
+  expect(requests).toBe(0);
+  expect(page.url()).toBe(url);
 });
