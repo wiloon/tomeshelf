@@ -218,7 +218,7 @@ function CardMenu({
 function Cover({ book }: { book: Book }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="aspect-[2/3] w-full overflow-hidden rounded bg-stone-200 shadow-sm group-hover:shadow-lg">
+    <div className="relative aspect-[2/3] w-full overflow-hidden rounded bg-stone-200 shadow-sm group-hover:shadow-lg">
       {failed ? (
         <div
           data-testid="cover-placeholder"
@@ -234,6 +234,22 @@ function Cover({ book }: { book: Book }) {
           onError={() => setFailed(true)}
           className="h-full w-full object-cover"
         />
+      )}
+      {book.progress !== undefined && (
+        <div
+          role="progressbar"
+          aria-label={`Reading progress: ${book.progress}%`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={book.progress}
+          aria-valuetext={`${book.progress}%`}
+          className="absolute inset-x-0 bottom-0 h-1.5 bg-white shadow-[0_0_0_1px_#1c1917]"
+        >
+          <div
+            className="h-full bg-[var(--action-accent)]"
+            style={{ width: `${book.progress}%` }}
+          />
+        </div>
       )}
     </div>
   );
@@ -428,9 +444,6 @@ export function LibraryPage() {
                     {continuing.authors.join(", ")}
                   </p>
                 )}
-                {continuing.progress !== undefined && (
-                  <p className="text-sm">{continuing.progress}%</p>
-                )}
                 <Link
                   to="/books/$id/read"
                   params={{ id: String(continuing.id) }}
@@ -472,11 +485,6 @@ export function LibraryPage() {
                       {" "}
                       <span className="sr-only">by </span>
                       {book.authors.join(", ")}
-                    </span>
-                  )}
-                  {book.progress !== undefined && (
-                    <span className="text-sm text-stone-600">
-                      {book.progress}%
                     </span>
                   )}
                 </Link>
