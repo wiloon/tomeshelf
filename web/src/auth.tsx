@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useRef, useState } from "react";
+import { usePositionQueue } from "./position-queue";
 import { useReadingSettings } from "./settings";
 
 type Credentials = { username: string; password: string };
@@ -135,17 +136,41 @@ export function SignInPage() {
   );
 }
 
-export function AccountBar() {
+export function AccountMenu() {
   const queryClient = useQueryClient();
+  const positions = usePositionQueue();
   const { reset } = useReadingSettings();
   const navigate = useNavigate();
   const me = useQuery({ queryKey: ["me"], queryFn: fetchMe });
 
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const container = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const item = useRef<HTMLButtonElement>(null);
+  const menuId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    item.current?.focus();
+    const outside = (event: PointerEvent) => {
+      if (
+        event.target instanceof Node &&
+        !container.current?.contains(event.target)
+      ) {
+        event.preventDefault();
+        setOpen(false);
+        button.current?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, [open]);
 
   async function signOut() {
     setError(null);
     try {
+      await positions.flush();
       const res = await fetch("/api/session", { method: "DELETE" });
       if (!res.ok) {
         setError(`Could not sign out (${res.status}). Please try again.`);
@@ -160,21 +185,62 @@ export function AccountBar() {
     await navigate({ to: "/signin" });
   }
 
+  if (!me.data) return null;
+
   return (
-    <div className="flex items-center gap-4">
-      {me.data && <p>Signed in as {me.data.username}</p>}
-      {error && (
-        <p role="alert" className="text-red-700">
-          {error}
-        </p>
-      )}
+    <div ref={container} className="relative min-w-0">
       <button
+        ref={button}
         type="button"
-        onClick={signOut}
-        className="rounded border border-stone-300 px-3 py-1.5"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        onClick={() => setOpen(!open)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setOpen(true);
+            item.current?.focus();
+          }
+        }}
+        className="block max-w-40 truncate rounded border border-(--page-rule) px-3 py-1.5"
       >
-        Sign out
+        {me.data.username}
       </button>
+      {open && (
+        <div
+          id={menuId}
+          role="menu"
+          onBlur={(event) => {
+            if (!container.current?.contains(event.relatedTarget))
+              setOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setOpen(false);
+              button.current?.focus();
+            }
+          }}
+          aria-label="Account"
+          className="absolute right-0 z-50 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded border border-(--page-rule) bg-(--page-bg) p-2 shadow-lg"
+        >
+          <button
+            ref={item}
+            role="menuitem"
+            type="button"
+            onClick={signOut}
+            className="w-full rounded px-3 py-1.5 text-left hover:bg-(--page-rule)"
+          >
+            Sign out
+          </button>
+          {error && (
+            <p role="alert" className="px-3 py-2 text-red-700">
+              {error}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

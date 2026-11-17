@@ -1,7 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { type ChangeEvent, useEffect, useId, useRef, useState } from "react";
-import { AccountBar } from "./auth";
 
 type Book = {
   id: number;
@@ -198,7 +197,6 @@ export function LibraryPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <AccountBar />
       <section className="flex flex-col gap-3">
         <h2 id={`${id}-heading`} className="text-lg font-semibold">
           Library

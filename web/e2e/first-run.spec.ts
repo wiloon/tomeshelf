@@ -18,17 +18,22 @@ const admin = { username: "first-admin", password: "first-run password" };
 test("first run: setup, sign out, sign in", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/setup$/);
+  await expect(page.locator("[aria-haspopup=menu]")).toHaveCount(0);
 
   await page.getByLabel("Username").fill(admin.username);
   await page.getByLabel("Password").fill(admin.password);
   await page.getByRole("button", { name: "Create admin" }).click();
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByText(`Signed in as ${admin.username}`)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: admin.username, exact: true }),
+  ).toBeVisible();
 
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.getByRole("button", { name: admin.username, exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/signin$/);
   await page.goto("/");
   await expect(page).toHaveURL(/\/signin$/);
+  await expect(page.locator("[aria-haspopup=menu]")).toHaveCount(0);
 
   await page.getByLabel("Username").fill(admin.username);
   await page.getByLabel("Password").fill("wrong password");
@@ -44,7 +49,9 @@ test("first run: setup, sign out, sign in", async ({ page }) => {
   await expect(
     page.getByRole("heading", { level: 1, name: "tomeshelf" }),
   ).toBeVisible();
-  await expect(page.getByText(`Signed in as ${admin.username}`)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: admin.username, exact: true }),
+  ).toBeVisible();
 });
 
 test("a failed sign-out stays signed in and shows the error", async ({
@@ -54,17 +61,22 @@ test("a failed sign-out stays signed in and shows the error", async ({
   await page.getByLabel("Username").fill(admin.username);
   await page.getByLabel("Password").fill(admin.password);
   await page.getByRole("button", { name: "Create admin" }).click();
-  await expect(page.getByText(`Signed in as ${admin.username}`)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: admin.username, exact: true }),
+  ).toBeVisible();
 
   await page.route("**/api/session", (route) =>
     route.request().method() === "DELETE"
       ? route.fulfill({ status: 500 })
       : route.continue(),
   );
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("alert")).toHaveText(
+  await page.getByRole("button", { name: admin.username, exact: true }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await expect(page.getByRole("menu").getByRole("alert")).toHaveText(
     "Could not sign out (500). Please try again.",
   );
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByText(`Signed in as ${admin.username}`)).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: admin.username, exact: true }),
+  ).toBeVisible();
 });
