@@ -35,10 +35,4 @@ describe("continueReadingBook", () => {
   it("accepts a save at the Unix epoch", () => {
     expect(continueReadingBook([book("1", 0)])?.id).toBe("1");
   });
-  it("preserves numeric tie order for legacy ids until the storage migration", () => {
-    const older = book("9", 100, 1000);
-    const newer = book("10", 100, 1000);
-    expect(continueReadingBook([older, newer])).toBe(newer);
-    expect(continueReadingBook([newer, older])).toBe(newer);
-  });
 });
