@@ -9,16 +9,16 @@ import (
 )
 
 type Book struct {
-	ID         int64
 	UserID     int64
-	Sha256     string
+	ID         string
 	Title      string
 	Authors    string
 	ImportedAt int64
 }
 
 type ReadingPosition struct {
-	BookID           int64
+	UserID           int64
+	BookID           string
 	Href             string
 	Progression      float64
 	TotalProgression float64
@@ -31,7 +31,8 @@ type ReadingPosition struct {
 }
 
 type ReadingPositionTab struct {
-	BookID          int64
+	UserID          int64
+	BookID          string
 	TabID           string
 	HighestSequence int64
 }

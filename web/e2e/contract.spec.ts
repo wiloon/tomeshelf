@@ -145,6 +145,8 @@ test("reading pages carry the generator and book meta tags, updated on every mov
   await expect(meta(page, "tomeshelf:book")).toHaveCount(0);
 
   const id = await chooseBook(page, chapters, "CHAPTER I.");
+  // The id is the SHA-256 of the original (ADR-0015).
+  expect(id).toMatch(/^[0-9a-f]{64}$/);
   await expect(meta(page, "generator")).toHaveCount(1);
   await expect(meta(page, "generator")).toHaveAttribute(
     "content",

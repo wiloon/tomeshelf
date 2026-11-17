@@ -54,12 +54,12 @@ func TestOversizedPackageFileIsRejected(t *testing.T) {
 const coverEPUBText = `<?xml version="1.0" encoding="UTF-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml"><head><title>Text</title></head><body><p>CC0 test text.</p></body></html>`
 
-func manifestPath(id int64) string {
-	return fmt.Sprintf("/api/books/%d/manifest", id)
+func manifestPath(id string) string {
+	return fmt.Sprintf("/api/books/%s/manifest", id)
 }
 
-func packagePath(id int64, path string) string {
-	return fmt.Sprintf("/api/books/%d/package/%s", id, path)
+func packagePath(id string, path string) string {
+	return fmt.Sprintf("/api/books/%s/package/%s", id, path)
 }
 
 // conditionalGet requests target, with If-None-Match when etag is not empty.
@@ -168,9 +168,9 @@ func TestManifestAndPackageFilesAreServedOnlyToTheSignedInOwner(t *testing.T) {
 	othersID := e.importedID(t, other, coverEPUB(t, "The Other's Book", nil))
 	forged := &http.Cookie{Name: "tomeshelf_session", Value: "forged"}
 
-	targets := map[string]func(int64) string{
+	targets := map[string]func(string) string{
 		"manifest": manifestPath,
-		"package":  func(id int64) string { return packagePath(id, "OEBPS/text.xhtml") },
+		"package":  func(id string) string { return packagePath(id, "OEBPS/text.xhtml") },
 	}
 	for name, target := range targets {
 		t.Run(name, func(t *testing.T) {
@@ -183,7 +183,7 @@ func TestManifestAndPackageFilesAreServedOnlyToTheSignedInOwner(t *testing.T) {
 				requireNoImage(t, e.conditionalGet(t, target(id), forged, inm), http.StatusUnauthorized)
 				requireNoImage(t, e.conditionalGet(t, target(id), other, inm), http.StatusNotFound)
 				requireNoImage(t, e.conditionalGet(t, target(othersID), admin, inm), http.StatusNotFound)
-				requireNoImage(t, e.conditionalGet(t, target(9999), admin, inm), http.StatusNotFound)
+				requireNoImage(t, e.conditionalGet(t, target(absentID), admin, inm), http.StatusNotFound)
 			}
 			requireNotModified(t, e.conditionalGet(t, target(id), admin, etag))
 		})
@@ -200,7 +200,7 @@ func TestPackagePathsAreConfinedToThePackage(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.dataDir, "secret.txt"), []byte(secret), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	base := fmt.Sprintf("/api/books/%d/package/", id)
+	base := fmt.Sprintf("/api/books/%s/package/", id)
 
 	for _, target := range []string{
 		base + "OEBPS/missing.xhtml",

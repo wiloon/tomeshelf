@@ -11,11 +11,11 @@ import (
 )
 
 const bookFileNamed = `-- name: BookFileNamed :one
-SELECT EXISTS (SELECT 1 FROM books WHERE sha256 = ?)
+SELECT EXISTS (SELECT 1 FROM books WHERE id = ?)
 `
 
-func (q *Queries) BookFileNamed(ctx context.Context, sha256 string) (bool, error) {
-	row := q.db.QueryRowContext(ctx, bookFileNamed, sha256)
+func (q *Queries) BookFileNamed(ctx context.Context, id string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, bookFileNamed, id)
 	var exists bool
 	err := row.Scan(&exists)
 	return exists, err
@@ -35,19 +35,47 @@ func (q *Queries) CountUsers(ctx context.Context) (int64, error) {
 const deleteBook = `-- name: DeleteBook :one
 DELETE FROM books
 WHERE books.id = ?1 AND books.user_id = (SELECT users.id FROM users WHERE users.username = ?2)
-RETURNING sha256
+RETURNING user_id
 `
 
 type DeleteBookParams struct {
-	ID       int64
+	ID       string
 	Username string
 }
 
-func (q *Queries) DeleteBook(ctx context.Context, arg DeleteBookParams) (string, error) {
+func (q *Queries) DeleteBook(ctx context.Context, arg DeleteBookParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, deleteBook, arg.ID, arg.Username)
-	var sha256 string
-	err := row.Scan(&sha256)
-	return sha256, err
+	var user_id int64
+	err := row.Scan(&user_id)
+	return user_id, err
+}
+
+const deleteReadingPosition = `-- name: DeleteReadingPosition :exec
+DELETE FROM reading_positions WHERE user_id = ? AND book_id = ?
+`
+
+type DeleteReadingPositionParams struct {
+	UserID int64
+	BookID string
+}
+
+func (q *Queries) DeleteReadingPosition(ctx context.Context, arg DeleteReadingPositionParams) error {
+	_, err := q.db.ExecContext(ctx, deleteReadingPosition, arg.UserID, arg.BookID)
+	return err
+}
+
+const deleteReadingPositionTabs = `-- name: DeleteReadingPositionTabs :exec
+DELETE FROM reading_position_tabs WHERE user_id = ? AND book_id = ?
+`
+
+type DeleteReadingPositionTabsParams struct {
+	UserID int64
+	BookID string
+}
+
+func (q *Queries) DeleteReadingPositionTabs(ctx context.Context, arg DeleteReadingPositionTabsParams) error {
+	_, err := q.db.ExecContext(ctx, deleteReadingPositionTabs, arg.UserID, arg.BookID)
+	return err
 }
 
 const deleteSession = `-- name: DeleteSession :exec
@@ -69,19 +97,18 @@ func (q *Queries) DeleteUserSessions(ctx context.Context, userID int64) error {
 }
 
 const getBook = `-- name: GetBook :one
-SELECT books.id, books.sha256, books.title, books.authors, books.imported_at
+SELECT books.id, books.title, books.authors, books.imported_at
 FROM books JOIN users ON users.id = books.user_id
-WHERE users.username = ? AND books.id = ?
+WHERE users.username = ?1 AND books.id = ?2
 `
 
 type GetBookParams struct {
 	Username string
-	ID       int64
+	ID       string
 }
 
 type GetBookRow struct {
-	ID         int64
-	Sha256     string
+	ID         string
 	Title      string
 	Authors    string
 	ImportedAt int64
@@ -92,7 +119,6 @@ func (q *Queries) GetBook(ctx context.Context, arg GetBookParams) (GetBookRow, e
 	var i GetBookRow
 	err := row.Scan(
 		&i.ID,
-		&i.Sha256,
 		&i.Title,
 		&i.Authors,
 		&i.ImportedAt,
@@ -105,14 +131,14 @@ SELECT reading_positions.href, reading_positions.progression, reading_positions.
        reading_positions.css_selector, reading_positions.character_offset,
        reading_positions.text_before, reading_positions.text_highlight, reading_positions.text_after
 FROM reading_positions
-JOIN books ON books.id = reading_positions.book_id
-JOIN users ON users.id = books.user_id
-WHERE users.username = ? AND books.id = ?
+JOIN users ON users.id = reading_positions.user_id
+JOIN books ON books.user_id = reading_positions.user_id AND books.id = reading_positions.book_id
+WHERE users.username = ?1 AND reading_positions.book_id = ?2
 `
 
 type GetReadingPositionParams struct {
 	Username string
-	ID       int64
+	BookID   string
 }
 
 type GetReadingPositionRow struct {
@@ -127,7 +153,7 @@ type GetReadingPositionRow struct {
 }
 
 func (q *Queries) GetReadingPosition(ctx context.Context, arg GetReadingPositionParams) (GetReadingPositionRow, error) {
-	row := q.db.QueryRowContext(ctx, getReadingPosition, arg.Username, arg.ID)
+	row := q.db.QueryRowContext(ctx, getReadingPosition, arg.Username, arg.BookID)
 	var i GetReadingPositionRow
 	err := row.Scan(
 		&i.Href,
@@ -194,19 +220,19 @@ func (q *Queries) GetSessionUsername(ctx context.Context, arg GetSessionUsername
 const getTabHighestSequence = `-- name: GetTabHighestSequence :one
 SELECT reading_position_tabs.highest_sequence
 FROM reading_position_tabs
-JOIN books ON books.id = reading_position_tabs.book_id
-JOIN users ON users.id = books.user_id
-WHERE users.username = ? AND books.id = ? AND reading_position_tabs.tab_id = ?
+JOIN users ON users.id = reading_position_tabs.user_id
+JOIN books ON books.user_id = reading_position_tabs.user_id AND books.id = reading_position_tabs.book_id
+WHERE users.username = ?1 AND reading_position_tabs.book_id = ?2 AND reading_position_tabs.tab_id = ?3
 `
 
 type GetTabHighestSequenceParams struct {
 	Username string
-	ID       int64
+	BookID   string
 	TabID    string
 }
 
 func (q *Queries) GetTabHighestSequence(ctx context.Context, arg GetTabHighestSequenceParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, getTabHighestSequence, arg.Username, arg.ID, arg.TabID)
+	row := q.db.QueryRowContext(ctx, getTabHighestSequence, arg.Username, arg.BookID, arg.TabID)
 	var highest_sequence int64
 	err := row.Scan(&highest_sequence)
 	return highest_sequence, err
@@ -229,29 +255,29 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (GetUs
 }
 
 const insertBook = `-- name: InsertBook :one
-INSERT INTO books (user_id, sha256, title, authors, imported_at)
+INSERT INTO books (user_id, id, title, authors, imported_at)
 VALUES ((SELECT id FROM users WHERE username = ?1), ?2, ?3, ?4, ?5)
-ON CONFLICT (user_id, sha256) DO NOTHING
+ON CONFLICT (user_id, id) DO NOTHING
 RETURNING id
 `
 
 type InsertBookParams struct {
 	Username   string
-	Sha256     string
+	ID         string
 	Title      string
 	Authors    string
 	ImportedAt int64
 }
 
-func (q *Queries) InsertBook(ctx context.Context, arg InsertBookParams) (int64, error) {
+func (q *Queries) InsertBook(ctx context.Context, arg InsertBookParams) (string, error) {
 	row := q.db.QueryRowContext(ctx, insertBook,
 		arg.Username,
-		arg.Sha256,
+		arg.ID,
 		arg.Title,
 		arg.Authors,
 		arg.ImportedAt,
 	)
-	var id int64
+	var id string
 	err := row.Scan(&id)
 	return id, err
 }
@@ -318,15 +344,14 @@ func (q *Queries) InsertSessionIfPasswordHash(ctx context.Context, arg InsertSes
 }
 
 const listBooks = `-- name: ListBooks :many
-SELECT books.id, books.sha256, books.title, books.authors
+SELECT books.id, books.title, books.authors
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ?
 ORDER BY books.title COLLATE NOCASE, books.id
 `
 
 type ListBooksRow struct {
-	ID      int64
-	Sha256  string
+	ID      string
 	Title   string
 	Authors string
 }
@@ -340,12 +365,7 @@ func (q *Queries) ListBooks(ctx context.Context, username string) ([]ListBooksRo
 	var items []ListBooksRow
 	for rows.Next() {
 		var i ListBooksRow
-		if err := rows.Scan(
-			&i.ID,
-			&i.Sha256,
-			&i.Title,
-			&i.Authors,
-		); err != nil {
+		if err := rows.Scan(&i.ID, &i.Title, &i.Authors); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -360,17 +380,16 @@ func (q *Queries) ListBooks(ctx context.Context, username string) ([]ListBooksRo
 }
 
 const listBooksWithProgress = `-- name: ListBooksWithProgress :many
-SELECT books.id, books.sha256, books.title, books.authors, books.imported_at, reading_positions.total_progression, reading_positions.saved_at
+SELECT books.id, books.title, books.authors, books.imported_at, reading_positions.total_progression, reading_positions.saved_at
 FROM books
 JOIN users ON users.id = books.user_id
-LEFT JOIN reading_positions ON reading_positions.book_id = books.id
+LEFT JOIN reading_positions ON reading_positions.user_id = books.user_id AND reading_positions.book_id = books.id
 WHERE users.username = ?
 ORDER BY books.title COLLATE NOCASE, books.id
 `
 
 type ListBooksWithProgressRow struct {
-	ID               int64
-	Sha256           string
+	ID               string
 	Title            string
 	Authors          string
 	ImportedAt       int64
@@ -389,7 +408,6 @@ func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([
 		var i ListBooksWithProgressRow
 		if err := rows.Scan(
 			&i.ID,
-			&i.Sha256,
 			&i.Title,
 			&i.Authors,
 			&i.ImportedAt,
@@ -470,15 +488,15 @@ func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHash
 
 const upsertReadingPosition = `-- name: UpsertReadingPosition :execrows
 INSERT INTO reading_positions (
-    book_id, href, progression, total_progression,
+    user_id, book_id, href, progression, total_progression,
     css_selector, character_offset, text_before, text_highlight, text_after, saved_at
 )
-SELECT books.id, ?1, ?2, ?3,
+SELECT books.user_id, books.id, ?1, ?2, ?3,
        ?4, ?5,
        ?6, ?7, ?8, ?9
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ?10 AND books.id = ?11
-ON CONFLICT (book_id) DO UPDATE SET
+ON CONFLICT (user_id, book_id) DO UPDATE SET
     href = excluded.href,
     progression = excluded.progression,
     total_progression = excluded.total_progression,
@@ -501,7 +519,7 @@ type UpsertReadingPositionParams struct {
 	TextAfter        sql.NullString
 	SavedAt          sql.NullInt64
 	Username         string
-	BookID           int64
+	BookID           string
 }
 
 func (q *Queries) UpsertReadingPosition(ctx context.Context, arg UpsertReadingPositionParams) (int64, error) {
@@ -525,11 +543,11 @@ func (q *Queries) UpsertReadingPosition(ctx context.Context, arg UpsertReadingPo
 }
 
 const upsertTabHighestSequence = `-- name: UpsertTabHighestSequence :execrows
-INSERT INTO reading_position_tabs (book_id, tab_id, highest_sequence)
-SELECT books.id, ?1, ?2
+INSERT INTO reading_position_tabs (user_id, book_id, tab_id, highest_sequence)
+SELECT books.user_id, books.id, ?1, ?2
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = ?3 AND books.id = ?4
-ON CONFLICT (book_id, tab_id) DO UPDATE SET
+ON CONFLICT (user_id, book_id, tab_id) DO UPDATE SET
     highest_sequence = excluded.highest_sequence
 `
 
@@ -537,7 +555,7 @@ type UpsertTabHighestSequenceParams struct {
 	TabID           string
 	HighestSequence int64
 	Username        string
-	BookID          int64
+	BookID          string
 }
 
 func (q *Queries) UpsertTabHighestSequence(ctx context.Context, arg UpsertTabHighestSequenceParams) (int64, error) {

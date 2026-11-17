@@ -26,7 +26,7 @@ import (
 type listedBook struct {
 	ImportedAt int64    `json:"importedAt"`
 	SavedAt    *int64   `json:"savedAt"`
-	ID         int64    `json:"id,string"`
+	ID         string   `json:"id"`
 	Title      string   `json:"title"`
 	Authors    []string `json:"authors"`
 	Progress   *int     `json:"progress"`

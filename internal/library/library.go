@@ -27,6 +27,22 @@ import (
 	"github.com/wiloon/tomeshelf/internal/store"
 )
 
+// ValidID reports whether id is a book id: the 64 lowercase hex characters of
+// an original's SHA-256 (ADR-0015). Callers check it before an id reaches the
+// store or a file path.
+func ValidID(id string) bool {
+	if len(id) != 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // ErrDRM means the book is DRM-encrypted (Adobe ADEPT or Readium LCP).
 var ErrDRM = errors.New("the book is DRM-encrypted")
 
@@ -40,11 +56,11 @@ func (e *ParseError) Unwrap() error { return e.Err }
 type Store interface {
 	AddBook(ctx context.Context, username string, b store.Book) (store.Book, error)
 	Books(ctx context.Context, username string) ([]store.Book, error)
-	Book(ctx context.Context, username string, id int64) (store.Book, error)
-	DeleteBook(ctx context.Context, username string, id int64) (string, error)
-	BookFileNamed(ctx context.Context, sha256 string) (bool, error)
-	ReadingPosition(ctx context.Context, username string, bookID int64) (store.ReadingPosition, error)
-	SaveReadingPosition(ctx context.Context, username string, bookID int64, tabID string, sequence int64, p store.ReadingPosition) (store.SaveReadingPositionResult, error)
+	Book(ctx context.Context, username string, id string) (store.Book, error)
+	DeleteBook(ctx context.Context, username string, id string) error
+	BookFileNamed(ctx context.Context, id string) (bool, error)
+	ReadingPosition(ctx context.Context, username string, bookID string) (store.ReadingPosition, error)
+	SaveReadingPosition(ctx context.Context, username string, bookID string, tabID string, sequence int64, p store.ReadingPosition) (store.SaveReadingPositionResult, error)
 }
 
 // Library is the books in a data directory. Its methods are safe for
@@ -131,7 +147,7 @@ func (l *Library) Import(ctx context.Context, username string, r io.Reader) (sto
 	if err := checkDRM(staged); err != nil {
 		return store.Book{}, err
 	}
-	book.SHA256 = sum
+	book.ID = sum
 	if err := ctx.Err(); err != nil {
 		return store.Book{}, err
 	}
@@ -157,18 +173,18 @@ func (e *LeftoverError) Unwrap() error { return e.Err }
 // files. It returns store.ErrUnknownBook, and changes nothing, when the
 // user's library has no such book, and a *LeftoverError when the row is gone
 // but a file could not be removed.
-func (l *Library) Delete(ctx context.Context, username string, id int64) error {
+func (l *Library) Delete(ctx context.Context, username string, id string) error {
 	book, err := l.store.Book(ctx, username, id)
 	if err != nil {
 		return err
 	}
-	unlock := l.locks.lock(book.SHA256)
+	unlock := l.locks.lock(book.ID)
 	defer unlock()
-	if _, err := l.store.DeleteBook(ctx, username, id); err != nil {
+	if err := l.store.DeleteBook(ctx, username, id); err != nil {
 		return err
 	}
 	ctx = context.WithoutCancel(ctx)
-	named, err := l.store.BookFileNamed(ctx, book.SHA256)
+	named, err := l.store.BookFileNamed(ctx, book.ID)
 	if err != nil {
 		return &LeftoverError{Err: err}
 	}
@@ -177,9 +193,9 @@ func (l *Library) Delete(ctx context.Context, username string, id int64) error {
 	}
 	var errs []error
 	for _, path := range []string{
-		filepath.Join(l.coversDir, book.SHA256+".jpg"),
-		filepath.Join(l.coversDir, book.SHA256+".none"),
-		filepath.Join(l.booksDir, book.SHA256+".epub"),
+		filepath.Join(l.coversDir, book.ID+".jpg"),
+		filepath.Join(l.coversDir, book.ID+".none"),
+		filepath.Join(l.booksDir, book.ID+".epub"),
 	} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
