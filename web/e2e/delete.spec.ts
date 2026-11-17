@@ -54,10 +54,19 @@ async function expectCover(page: Page) {
 }
 
 // Opens the confirmation for the book and returns the dialog.
-async function askToDelete(page: Page): Promise<Locator> {
-  await entry(page)
-    .getByRole("button", { name: `Delete ${title}` })
-    .click();
+async function askToDelete(page: Page, keyboard = false): Promise<Locator> {
+  const button = entry(page).getByRole("button", {
+    name: `More actions for ${title}`,
+  });
+  if (keyboard) {
+    await expect(button).toBeFocused();
+    await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter");
+  } else {
+    await entry(page).hover();
+    await button.click();
+    await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  }
   const dialog = page.getByRole("dialog", { name: "Delete book" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText(title);
@@ -89,13 +98,13 @@ test("a book is deleted after confirming, and cancelling keeps it", async ({
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
   await expect(entry(page)).toHaveCount(1);
-  dialog = await askToDelete(page);
+  dialog = await askToDelete(page, true);
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(entry(page)).toHaveCount(1);
   expect(deletes).toEqual([]);
 
-  dialog = await askToDelete(page);
+  dialog = await askToDelete(page, true);
   const answered = page.waitForResponse((res) => isDelete(res.request()));
   await dialog.getByRole("button", { name: "Delete", exact: true }).click();
   expect((await answered).status()).toBe(204);

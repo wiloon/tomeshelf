@@ -127,13 +127,98 @@ function DeleteDialog({
   );
 }
 
+// Keep the trigger mounted while the menu and confirmation come and go.
+function CardMenu({
+  book,
+  onDelete,
+}: {
+  book: Book;
+  onDelete: (button: HTMLButtonElement) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const item = useRef<HTMLButtonElement>(null);
+  const id = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    item.current?.focus();
+    const close = () => {
+      setOpen(false);
+      button.current?.focus();
+    };
+    const outside = (event: MouseEvent) => {
+      if (root.current?.contains(event.target as Node)) return;
+      // Clicking another control (e.g. another card's ⋯) moves focus there;
+      // only restore our trigger when the click landed on inert content.
+      const target = event.target as Element;
+      if (target.closest?.("a, button, input, select, textarea, [tabindex]")) {
+        setOpen(false);
+      } else {
+        close();
+      }
+    };
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+      }
+    };
+    document.addEventListener("click", outside);
+    document.addEventListener("keydown", key);
+    return () => {
+      document.removeEventListener("click", outside);
+      document.removeEventListener("keydown", key);
+    };
+  }, [open]);
+
+  return (
+    <div ref={root} className="relative self-end">
+      <button
+        ref={button}
+        type="button"
+        aria-label={`More actions for ${book.title}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? id : undefined}
+        onClick={() => setOpen(!open)}
+        className="rounded px-3 py-1 text-xl focus-visible:outline-2 focus-visible:outline-[var(--action-accent)] [@media(hover:hover)]:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          id={id}
+          role="menu"
+          aria-label={`Actions for ${book.title}`}
+          className="absolute right-0 z-10 min-w-32 rounded border border-stone-300 bg-(--panel-bg) p-1 shadow-lg"
+        >
+          <button
+            ref={item}
+            role="menuitem"
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              if (button.current) onDelete(button.current);
+            }}
+            className="w-full rounded px-3 py-2 text-left text-red-700 hover:bg-stone-100 focus-visible:outline-2 focus-visible:outline-[var(--action-accent)]"
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // The book's cover thumbnail, or its title when the server has no usable
 // cover for it. The thumbnail repeats the title next to it, so it has no alt
 // text.
 function Cover({ book }: { book: Book }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="aspect-[2/3] w-full overflow-hidden rounded bg-stone-200 shadow-sm">
+    <div className="aspect-[2/3] w-full overflow-hidden rounded bg-stone-200 shadow-sm group-hover:shadow-lg">
       {failed ? (
         <div
           data-testid="cover-placeholder"
@@ -197,6 +282,7 @@ export function LibraryPage() {
       window.removeEventListener("blur", reset);
     };
   }, []);
+  const deleteTrigger = useRef<HTMLButtonElement>(null);
   const [confirming, setConfirming] = useState<Book | null>(null);
 
   async function onDeleteConfirmed(book: Book) {
@@ -364,12 +450,12 @@ export function LibraryPage() {
             {books.data.map((book) => (
               <li
                 key={book.id}
-                className="flex min-w-0 max-w-[180px] flex-col gap-1"
+                className="group flex min-w-0 max-w-[180px] flex-col gap-1"
               >
                 <Link
                   to="/books/$id/read"
                   params={{ id: String(book.id) }}
-                  className="flex flex-col gap-1"
+                  className="flex flex-col gap-1 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-accent)]"
                 >
                   <Cover book={book} />
                   <span
@@ -394,14 +480,13 @@ export function LibraryPage() {
                     </span>
                   )}
                 </Link>
-                <button
-                  type="button"
-                  aria-label={`Delete ${book.title}`}
-                  onClick={() => setConfirming(book)}
-                  className="self-start text-sm text-stone-600 underline"
-                >
-                  Delete
-                </button>
+                <CardMenu
+                  book={book}
+                  onDelete={(button) => {
+                    deleteTrigger.current = button;
+                    setConfirming(book);
+                  }}
+                />
               </li>
             ))}
           </ul>
@@ -409,7 +494,10 @@ export function LibraryPage() {
       </section>
       <DeleteDialog
         book={confirming}
-        onClose={() => setConfirming(null)}
+        onClose={() => {
+          setConfirming(null);
+          deleteTrigger.current?.focus();
+        }}
         onConfirm={onDeleteConfirmed}
       />
     </div>
