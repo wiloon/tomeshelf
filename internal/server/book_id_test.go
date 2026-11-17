@@ -97,9 +97,9 @@ func (c countingStore) Book(ctx context.Context, username, id string) (store.Boo
 	return c.Store.Book(ctx, username, id)
 }
 
-func (c countingStore) DeleteBook(ctx context.Context, username, id string) error {
+func (c countingStore) DeleteBook(ctx context.Context, username, id string, keepPosition bool) error {
 	c.calls.Add(1)
-	return c.Store.DeleteBook(ctx, username, id)
+	return c.Store.DeleteBook(ctx, username, id, keepPosition)
 }
 
 func (c countingStore) ReadingPosition(ctx context.Context, username, id string) (store.ReadingPosition, error) {

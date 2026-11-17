@@ -191,7 +191,7 @@ func TestReimportingADeletedBookIsAFreshImportWithARebuiltThumbnail(t *testing.T
 // failingDelete fails every DeleteBook.
 type failingDelete struct{ *store.Store }
 
-func (failingDelete) DeleteBook(context.Context, string, string) error {
+func (failingDelete) DeleteBook(context.Context, string, string, bool) error {
 	return errors.New("injected delete failure")
 }
 
@@ -262,6 +262,116 @@ func TestAFailedFileRemovalStillDeletesAndAReimportReusesTheLeftovers(t *testing
 				t.Error("the thumbnail after the re-import differs from the one before the deletion")
 			}
 			e.requireOnly(t, tc.book)
+		})
+	}
+}
+
+func TestKeepingAPositionHidesItUntilReimportAndKeepsTabSequences(t *testing.T) {
+	e := newEnv(t, buildFS())
+	c := e.setup(t)
+	book := fixture(t, "chapters.epub")
+	id := e.importedID(t, c, book)
+	href := readingOrderHref(t, e, id, c, 1)
+	requireStatus(t, e.putPosition(t, id, c, saveBody("tab-a", 7, href, 0.5, "")), http.StatusNoContent)
+	before := body(t, e.getPosition(t, id, c))
+	progress := *e.books(t, c)[0].Progress
+	requireStatus(t, e.deleteBook(t, id+"?keepPosition=true", c), http.StatusNoContent)
+	e.requireGone(t, id, c)
+	e.requireOnly(t)
+	requireJSONError(t, e.getPosition(t, id, c), http.StatusNotFound)
+	requireJSONError(t, e.putPosition(t, id, c, saveBody("tab-a", 8, href, 0.9, "")), http.StatusNotFound)
+	for _, table := range []string{"reading_positions", "reading_position_tabs"} {
+		if n := e.count(t, table); n != 1 {
+			t.Errorf("%s rows = %d, want 1", table, n)
+		}
+	}
+	e.importedID(t, c, book)
+	if got := e.books(t, c); len(got) != 1 || got[0].Progress == nil || *got[0].Progress != progress {
+		t.Fatalf("progress after reimport = %+v", got)
+	}
+	requireStatus(t, e.putPosition(t, id, c, saveBody("tab-a", 7, href, 0.9, "")), http.StatusNoContent)
+	if got := body(t, e.getPosition(t, id, c)); got != before {
+		t.Errorf("position = %s, want %s", got, before)
+	}
+}
+
+func TestDeleteKeepPositionValidationAndErrorOrder(t *testing.T) {
+	for _, query := range []string{"keepPosition=", "keepPosition=1", "keepPosition=TRUE", "keepPosition=true&keepPosition=false", "keepPosition=false&keepPosition=false"} {
+		t.Run(query, func(t *testing.T) {
+			e := newEnv(t, buildFS())
+			c := e.setup(t)
+			book := fixture(t, "chapters.epub")
+			id := e.importedID(t, c, book)
+			href := readingOrderHref(t, e, id, c, 0)
+			requireStatus(t, e.putPosition(t, id, c, saveBody("tab", 1, href, 0.5, "")), http.StatusNoContent)
+			requireJSONError(t, e.deleteBook(t, id+"?"+query, nil), http.StatusUnauthorized)
+			requireJSONError(t, e.deleteBook(t, "abc?"+query, c), http.StatusNotFound)
+			requireJSONError(t, e.deleteBook(t, absentID+"?"+query, c), http.StatusNotFound)
+			other := e.otherUser(t, "other")
+			requireJSONError(t, e.deleteBook(t, id+"?"+query, other), http.StatusNotFound)
+			requireJSONError(t, e.deleteBook(t, id+"?"+query, c), http.StatusBadRequest)
+			e.requireOnly(t, book)
+			requireStatus(t, e.getPosition(t, id, c), http.StatusOK)
+			for _, table := range []string{"books", "reading_positions", "reading_position_tabs"} {
+				if n := e.count(t, table); n != 1 {
+					t.Errorf("%s rows = %d, want 1", table, n)
+				}
+			}
+		})
+	}
+}
+
+func TestAKeptPositionBelongsOnlyToTheUserWhoDeletedTheBook(t *testing.T) {
+	e := newEnv(t, buildFS())
+	a := e.setup(t)
+	b := e.otherUser(t, "other")
+	book := fixture(t, "chapters.epub")
+	id := e.importedID(t, a, book)
+	href := readingOrderHref(t, e, id, a, 1)
+	requireStatus(t, e.putPosition(t, id, a, saveBody("same-tab", 7, href, 0.5, "")), http.StatusNoContent)
+	before := body(t, e.getPosition(t, id, a))
+	requireStatus(t, e.deleteBook(t, id+"?keepPosition=true", a), http.StatusNoContent)
+	e.importedID(t, b, book)
+	if books := e.books(t, b); len(books) != 1 || books[0].Progress != nil || books[0].SavedAt != nil {
+		t.Fatalf("other user's books = %+v", books)
+	}
+	requireJSONError(t, e.getPosition(t, id, b), http.StatusNotFound)
+	requireStatus(t, e.putPosition(t, id, b, saveBody("same-tab", 1, href, 0.9, "")), http.StatusNoContent)
+	requireStatus(t, e.getPosition(t, id, b), http.StatusOK)
+	e.importedID(t, a, book)
+	requireStatus(t, e.putPosition(t, id, a, saveBody("same-tab", 7, href, 0.1, "")), http.StatusNoContent)
+	if got := body(t, e.getPosition(t, id, a)); got != before {
+		t.Errorf("A's position changed: %s, want %s", got, before)
+	}
+	for _, table := range []string{"reading_positions", "reading_position_tabs"} {
+		if n := e.count(t, table); n != 2 {
+			t.Errorf("%s rows = %d, want 2", table, n)
+		}
+	}
+}
+
+func TestDeleteWithoutKeepingRemovesPositionsAndTabs(t *testing.T) {
+	for _, query := range []string{"", "?keepPosition=false"} {
+		t.Run(query, func(t *testing.T) {
+			e := newEnv(t, buildFS())
+			c := e.setup(t)
+			book := fixture(t, "chapters.epub")
+			id := e.importedID(t, c, book)
+			href := readingOrderHref(t, e, id, c, 1)
+			requireStatus(t, e.putPosition(t, id, c, saveBody("tab", 7, href, 0.5, "")), http.StatusNoContent)
+			requireStatus(t, e.deleteBook(t, id+query, c), http.StatusNoContent)
+			for _, table := range []string{"reading_positions", "reading_position_tabs"} {
+				if n := e.count(t, table); n != 0 {
+					t.Errorf("%s rows = %d, want 0", table, n)
+				}
+			}
+			e.importedID(t, c, book)
+			if books := e.books(t, c); len(books) != 1 || books[0].Progress != nil {
+				t.Fatalf("reimported books = %+v", books)
+			}
+			requireJSONError(t, e.getPosition(t, id, c), http.StatusNotFound)
+			requireStatus(t, e.putPosition(t, id, c, saveBody("tab", 1, href, 0.9, "")), http.StatusNoContent)
+			requireStatus(t, e.getPosition(t, id, c), http.StatusOK)
 		})
 	}
 }

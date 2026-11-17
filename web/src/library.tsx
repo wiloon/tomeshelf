@@ -50,8 +50,11 @@ async function importBook(file: File): Promise<Outcome> {
 
 // Deletes one book and returns what to tell the user. A 404 means the book
 // is already gone, which is what the user asked for.
-async function deleteBook(book: Book): Promise<Outcome> {
-  const res = await fetch(`/api/books/${book.id}`, { method: "DELETE" });
+async function deleteBook(book: Book, keepPosition: boolean): Promise<Outcome> {
+  const query = keepPosition ? "?keepPosition=true" : "";
+  const res = await fetch(`/api/books/${book.id}${query}`, {
+    method: "DELETE",
+  });
   if (res.ok || res.status === 404) {
     return { ok: true, text: `Deleted ${book.title}.` };
   }
@@ -70,14 +73,16 @@ function DeleteDialog({
 }: {
   book: Book | null;
   onClose: () => void;
-  onConfirm: (book: Book) => void;
+  onConfirm: (book: Book, keepPosition: boolean) => void;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const keepPosition = useRef<HTMLInputElement>(null);
   const id = useId();
 
   useEffect(() => {
     const dialog = ref.current;
     if (book && !dialog?.open) {
+      if (keepPosition.current) keepPosition.current.checked = false;
       dialog?.showModal();
     } else if (!book && dialog?.open) {
       dialog.close();
@@ -106,6 +111,18 @@ function DeleteDialog({
             Delete <strong>{book.title}</strong> from your library? This cannot
             be undone.
           </p>
+          {book.progress !== undefined && (
+            <label className="flex items-start gap-2">
+              <input
+                ref={keepPosition}
+                type="checkbox"
+                className="mt-1 shrink-0"
+              />
+              <span>
+                Keep my reading position for when I import this book again
+              </span>
+            </label>
+          )}
           <div className="flex justify-end gap-2">
             <button
               type="button"
@@ -116,7 +133,9 @@ function DeleteDialog({
             </button>
             <button
               type="button"
-              onClick={() => onConfirm(book)}
+              onClick={() =>
+                onConfirm(book, keepPosition.current?.checked === true)
+              }
               className="rounded bg-red-700 px-3 py-1.5 text-white"
             >
               Delete
@@ -302,12 +321,12 @@ export function LibraryPage() {
   const deleteTrigger = useRef<HTMLButtonElement>(null);
   const [confirming, setConfirming] = useState<Book | null>(null);
 
-  async function onDeleteConfirmed(book: Book) {
+  async function onDeleteConfirmed(book: Book, keepPosition: boolean) {
     setConfirming(null);
     setOutcome(null);
     let result: Outcome;
     try {
-      result = await deleteBook(book);
+      result = await deleteBook(book, keepPosition);
     } catch {
       result = {
         ok: false,
