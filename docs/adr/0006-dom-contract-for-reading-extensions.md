@@ -9,7 +9,7 @@ tomeshelf doesn't depend on ENX or call it. Its reading pages make promises abou
 Each reading page carries:
 
 - `<meta name="generator" content="tomeshelf <version>">`, the signal that this is a tomeshelf page.
-- `<meta name="tomeshelf:book" content="<book id>">`, the same value on every document of a book, so an extension can treat the documents as one book.
+- `<meta name="tomeshelf:book" content="<book id>">`, the same value on every document of a book, so an extension can treat the documents as one book. The id is an opaque string and never names a different book (ADR-0015).
 - `<meta name="tomeshelf:restores-position" content="true">`, which declares that tomeshelf itself reopens a book at its reading position. An extension that also tracks reading positions should not offer its own "continue reading" jump on these pages. The tag is a promise, so it ships with the work that saves and restores reading positions (ADR-0005), not before: until then reading pages carry no such tag.
 - One `<article id="tomeshelf-content">` holding the document's text, in the main DOM (ADR-0001).
 - `data-tomeshelf-block="<n>"` on each block. Blocks are the `p`, `h1` to `h6` and `li` elements inside the article, after sanitizing. They are numbered per document, from 1, in document order (pre-order, so an `li` comes before a `p` nested in it). Only the Navigator writes the contract's markup: the book's own `data-tomeshelf-*` attributes, `id="tomeshelf-content"` and `meta` elements are removed before numbering.
@@ -26,3 +26,4 @@ The contract is documented for extension authors and pinned by Playwright contra
 ## Revisions
 
 - 2026-11-14, issue #7: defined which elements are blocks and how they are numbered, since the numbers are a public selector. The `tomeshelf:restores-position` tag now ships with position restoration, so a reading page never promises what it does not yet do.
+- 2026-11-17, ADR-0015: the book id is an opaque string that never names a different book. Its value changes from an integer to the original's SHA-256, so an extension's data keyed by an old integer id no longer matches.
