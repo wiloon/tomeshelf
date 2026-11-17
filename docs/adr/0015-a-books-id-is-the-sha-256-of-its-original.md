@@ -11,6 +11,7 @@ Until now a private instance used SQLite's integer row id. SQLite gives a delete
 - **Per-user library, shared original.** `books` keeps one row per user and book, keyed `(user_id, id)`. Two users who import the same file share its id and its original (ADR-0007).
 - **Reading positions are keyed by user and book.** `reading_positions` is keyed `(user_id, book_id)` and the per-tab sequences of ADR-0005 `(user_id, book_id, tab_id)`. Both reference `users`, not `books`, so a reading position can outlive the book in the user's library. A position is shown and applied only while its book is in the user's library.
 - **Deleting a book can keep its reading position.** The delete confirmation offers a checkbox, unchecked by default, to keep the reading position for when the same file is imported again. Unchecked, the reading position and its tab sequences are deleted with the book. Checked, both stay, and importing the same file again resumes there. The checkbox is shown only when the book has a reading position.
+- **Scope of the checkbox: private instances.** A public instance registers no `DELETE /api/books/{id}` and holds no library (ADR-0011, ADR-0012), so the server cannot enforce "deleted with the book" or "shown only while the book is in the library" there. How a public instance keeps or drops a position on deleting a book (for example, the browser deleting the position unless the box is ticked, and filtering by its own library) is decided with the public-instance work (ADR-0013); until then the checkbox and `keepPosition` exist on private instances only.
 - **Ids in addresses are checked exactly.** A book address whose id is not `^[0-9a-f]{64}$` answers 404, with no case folding. The id names files on disk (ADR-0007), so it is never used before this check.
 - **Existing installs are converted in place.** The migration makes each book's stored SHA-256 its id and carries reading positions over, in one transaction. On data it cannot convert, it rolls back and the server does not start; the error says how to recover (delete the books and reading positions, then import again). The migration never deletes data on its own. Old `/books/<integer>/…` addresses and extension data keyed by integer ids stop working; there is no redirect.
 
@@ -25,3 +26,7 @@ Until now a private instance used SQLite's integer row id. SQLite gives a delete
 - An id is derived from content, so a cached manifest or document for an id is correct for as long as the id exists.
 - An extension keeps its data for a book across deleting and re-importing the same file, by design.
 - Where the library breaks ties by recency, it compares `imported_at`; ids carry no order.
+
+## Revision record
+
+- Issue #108 (round 1): stated that the delete checkbox and `keepPosition` apply to private instances only; the public-instance behaviour is deferred to the public-instance work, because a public instance has no delete route or library (ADR-0011, ADR-0012).
