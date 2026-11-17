@@ -19,14 +19,14 @@ import (
 type bookJSON struct {
 	ImportedAt int64    `json:"importedAt"`
 	SavedAt    *int64   `json:"savedAt,omitempty"`
-	ID         int64    `json:"id"`
+	ID         string   `json:"id"`
 	Title      string   `json:"title"`
 	Authors    []string `json:"authors"`
 	Progress   *int     `json:"progress,omitempty"`
 }
 
 func toBookJSON(b store.Book) bookJSON {
-	out := bookJSON{ImportedAt: b.ImportedAt, ID: b.ID, Title: b.Title, Authors: b.Authors, SavedAt: b.SavedAt}
+	out := bookJSON{ImportedAt: b.ImportedAt, ID: strconv.FormatInt(b.ID, 10), Title: b.Title, Authors: b.Authors, SavedAt: b.SavedAt}
 	if b.TotalProgression != nil {
 		p := int(math.Floor(*b.TotalProgression * 100))
 		if p > 100 {

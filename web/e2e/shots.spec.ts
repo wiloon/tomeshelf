@@ -21,7 +21,7 @@ const test = base.extend<{ shotsDir: string; shots: Shots }>({
   },
 });
 
-const thumbnailURL = /\/api\/books\/\d+\/thumbnail$/;
+const thumbnailURL = /\/api\/books\/[^/]+\/thumbnail$/;
 
 async function pngs(dir: string): Promise<string[]> {
   const names = await readdir(dir).catch(() => []);

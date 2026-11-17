@@ -33,7 +33,7 @@ function entry(page: Page): Locator {
 function isDelete(request: Request): boolean {
   return (
     request.method() === "DELETE" &&
-    /\/api\/books\/\d+$/.test(new URL(request.url()).pathname)
+    /\/api\/books\/[^/]+$/.test(new URL(request.url()).pathname)
   );
 }
 
@@ -128,7 +128,7 @@ test("a book is deleted after confirming, and cancelling keeps it", async ({
 test("a failed delete keeps the book listed and says so", async ({ page }) => {
   await signedIn(page);
   await importTimeMachine(page);
-  await page.route(/\/api\/books\/\d+$/, (route) =>
+  await page.route(/\/api\/books\/[^/]+$/, (route) =>
     route.request().method() === "DELETE"
       ? route.fulfill({ status: 500, json: { error: "internal server error" } })
       : route.fallback(),
@@ -149,7 +149,7 @@ test("a book the server no longer has leaves the library", async ({ page }) => {
   await importTimeMachine(page);
   const id = await entry(page)
     .getByRole("link")
-    .evaluate((a: HTMLAnchorElement) => /\/books\/(\d+)\//.exec(a.href)?.[1]);
+    .evaluate((a: HTMLAnchorElement) => /\/books\/([^/]+)\//.exec(a.href)?.[1]);
   const gone = await page.request.delete(`/api/books/${id}`);
   expect(gone.status()).toBe(204);
 

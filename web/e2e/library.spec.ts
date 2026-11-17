@@ -13,7 +13,7 @@ const manyAuthors = [
 ];
 
 const books = Array.from({ length: 12 }, (_, i) => ({
-  id: i + 1,
+  id: (i + 1).toString(16).padStart(64, "0"),
   title: i === 0 ? longTitle : i === 1 ? "山と海の物語" : `Book ${i + 1}`,
   authors: i === 0 ? manyAuthors : ["A. Writer"],
   ...(i === 2 ? { progress: 37 } : {}),
@@ -87,16 +87,30 @@ test.describe("library layout", () => {
     await page.route("**/api/books", (route) =>
       route.fulfill({
         json: [
-          { id: 1, title: "Unread", authors: ["A. Writer"] },
-          { id: 2, title: "Start", authors: ["A. Writer"], progress: 0 },
           {
-            id: 3,
+            id: "1".padStart(64, "0"),
+            title: "Unread",
+            authors: ["A. Writer"],
+          },
+          {
+            id: "2".padStart(64, "0"),
+            title: "Start",
+            authors: ["A. Writer"],
+            progress: 0,
+          },
+          {
+            id: "3".padStart(64, "0"),
             title: "Middle",
             authors: ["A. Writer"],
             progress: 37,
             savedAt: 1000,
           },
-          { id: 4, title: "End", authors: ["A. Writer"], progress: 100 },
+          {
+            id: "4".padStart(64, "0"),
+            title: "End",
+            authors: ["A. Writer"],
+            progress: 100,
+          },
         ],
       }),
     );
@@ -215,10 +229,10 @@ test.describe("library layout", () => {
     await expect(card.getByRole("heading", { name: longTitle })).toBeVisible();
     await expect(
       card.getByRole("link", { name: "Resume", exact: true }),
-    ).toHaveAttribute("href", "/books/1/read");
+    ).toHaveAttribute("href", `/books/${books[0].id}/read`);
     await expect(
       card.getByRole("link", { name: "Resume from cover" }),
-    ).toHaveAttribute("href", "/books/1/read");
+    ).toHaveAttribute("href", `/books/${books[0].id}/read`);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(
       await page.evaluate(

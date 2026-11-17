@@ -27,7 +27,7 @@ const withCover = "The Time Machine";
 const withoutCover = "A Hand-Made EPUB 3";
 const corruptCover = "A Book With A Corrupt Cover";
 
-const thumbnailURL = /\/api\/books\/\d+\/thumbnail$/;
+const thumbnailURL = /\/api\/books\/[^/]+\/thumbnail$/;
 
 function entry(page: Page, title: string): Locator {
   return page
