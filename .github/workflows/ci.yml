@@ -124,6 +124,14 @@ jobs:
           status=0
           for sha in $(git rev-list --no-merges "$BASE..$HEAD"); do
             author=$(git show -s --format='%an <%ae>' "$sha")
+            # Automation accounts (Renovate, Dependabot) cannot attest to the DCO,
+            # so their commits are exempt and their authors already carry [bot].
+            case "$author" in
+              *'[bot] <'*)
+                echo "Skipping $sha: $author is a bot and cannot sign the DCO."
+                continue
+                ;;
+            esac
             if ! git show -s --format='%(trailers:key=Signed-off-by,valueonly)' "$sha" | grep -qxF "$author"; then
               echo "::error::Commit $sha is not signed off by its author ($author). Amend it with git commit -s."
               status=1
