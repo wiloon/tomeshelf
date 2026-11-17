@@ -123,7 +123,7 @@ function DeleteDialog({
 function Cover({ book }: { book: Book }) {
   const [failed, setFailed] = useState(false);
   return (
-    <div className="aspect-[2/3] w-full overflow-hidden rounded bg-stone-200">
+    <div className="aspect-[2/3] w-full overflow-hidden rounded bg-stone-200 shadow-sm">
       {failed ? (
         <div
           data-testid="cover-placeholder"
@@ -197,7 +197,7 @@ export function LibraryPage() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-6">
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id={`${id}-heading`} className="text-lg font-semibold">
@@ -242,23 +242,33 @@ export function LibraryPage() {
         {books.data && books.data.length > 0 && (
           <ul
             aria-labelledby={`${id}-heading`}
-            className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6"
+            className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4"
           >
             {books.data.map((book) => (
-              <li key={book.id} className="flex min-w-0 flex-col gap-1">
+              <li
+                key={book.id}
+                className="flex min-w-0 max-w-[180px] flex-col gap-1"
+              >
                 <Link
                   to="/books/$id/read"
                   params={{ id: String(book.id) }}
                   className="flex flex-col gap-1"
                 >
                   <Cover book={book} />
-                  <span className="font-medium wrap-anywhere">
+                  <span
+                    title={book.title}
+                    className="line-clamp-2 font-medium wrap-anywhere"
+                  >
                     {book.title}
                   </span>
                   {book.authors.length > 0 && (
-                    <span className="text-sm text-stone-600 wrap-anywhere">
+                    <span
+                      title={book.authors.join(", ")}
+                      className="truncate text-sm text-stone-600"
+                    >
                       {" "}
-                      by {book.authors.join(", ")}
+                      <span className="sr-only">by </span>
+                      {book.authors.join(", ")}
                     </span>
                   )}
                   {book.progress !== undefined && (
