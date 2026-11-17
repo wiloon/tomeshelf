@@ -50,6 +50,7 @@ const defaults = {
   theme: "light" as const,
   layout: "pages" as const,
   font: "default" as const,
+  wheelTurnsPages: true,
 };
 
 function article(page: Page) {

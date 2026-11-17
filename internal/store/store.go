@@ -300,12 +300,13 @@ func (s *Store) BookFileNamed(ctx context.Context, sha256 string) (bool, error) 
 // ReadingSettings are a user's saved reading settings. The server checks them
 // against the settings contract before they are saved.
 type ReadingSettings struct {
-	FontSize   int64
-	LineHeight float64
-	Width      int64
-	Theme      string
-	Layout     string
-	Font       string
+	FontSize        int64
+	LineHeight      float64
+	Width           int64
+	Theme           string
+	Layout          string
+	Font            string
+	WheelTurnsPages bool
 }
 
 // ReadingSettings returns the user's saved reading settings, and false when
@@ -325,13 +326,14 @@ func (s *Store) ReadingSettings(ctx context.Context, username string) (ReadingSe
 // ErrUnknownUser when no such user exists.
 func (s *Store) SaveReadingSettings(ctx context.Context, username string, rs ReadingSettings) error {
 	n, err := s.q.PutReadingSettings(ctx, dbq.PutReadingSettingsParams{
-		FontSize:   rs.FontSize,
-		LineHeight: rs.LineHeight,
-		Width:      rs.Width,
-		Theme:      rs.Theme,
-		Layout:     rs.Layout,
-		Font:       rs.Font,
-		Username:   username,
+		FontSize:        rs.FontSize,
+		LineHeight:      rs.LineHeight,
+		Width:           rs.Width,
+		Theme:           rs.Theme,
+		Layout:          rs.Layout,
+		Font:            rs.Font,
+		WheelTurnsPages: rs.WheelTurnsPages,
+		Username:        username,
 	})
 	if err != nil {
 		return err

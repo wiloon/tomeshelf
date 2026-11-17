@@ -37,13 +37,14 @@ type ReadingPositionTab struct {
 }
 
 type ReadingSetting struct {
-	UserID     int64
-	FontSize   int64
-	LineHeight float64
-	Width      int64
-	Theme      string
-	Layout     string
-	Font       string
+	UserID          int64
+	FontSize        int64
+	LineHeight      float64
+	Width           int64
+	Theme           string
+	Layout          string
+	Font            string
+	WheelTurnsPages bool
 }
 
 type Session struct {

@@ -49,6 +49,7 @@ async function saveScrollLayout(page: Page) {
       theme: "light",
       layout: "scroll",
       font: "default",
+      wheelTurnsPages: true,
     },
   });
   expect(res.status()).toBe(204);
@@ -634,6 +635,14 @@ test("the settings panel fits and works by click and keyboard at phone and deskt
       "light",
     );
 
+    const wheel = panel.getByRole("checkbox", { name: "Wheel turns pages" });
+    await expect(wheel, at).toBeChecked();
+    await wheel.focus();
+    await page.keyboard.press("Space");
+    await expect(wheel, at).not.toBeChecked();
+    await page.keyboard.press("Space");
+    await expect(wheel, at).toBeChecked();
+
     await page.keyboard.press("Escape");
     await expect(panel, at).toBeHidden();
     await openSettings(page);
@@ -696,6 +705,7 @@ type Settings = {
   theme: string;
   layout: string;
   font: string;
+  wheelTurnsPages: boolean;
 };
 
 const defaults: Settings = {
@@ -705,6 +715,7 @@ const defaults: Settings = {
   theme: "light",
   layout: "pages",
   font: "default",
+  wheelTurnsPages: true,
 };
 
 async function saved(api: APIRequestContext): Promise<Settings> {
@@ -782,6 +793,7 @@ test("a change survives a reload and opens on another device, while another user
   await panel.getByRole("radio", { name: "Dark" }).check();
   await panel.getByRole("radio", { name: "Scroll" }).check();
   await panel.getByRole("radio", { name: "Literata" }).check();
+  await panel.getByRole("checkbox", { name: "Wheel turns pages" }).uncheck();
   await expect
     .poll(() => saved(page.request))
     .toEqual({
@@ -790,6 +802,7 @@ test("a change survives a reload and opens on another device, while another user
       theme: "dark",
       layout: "scroll",
       font: "literata",
+      wheelTurnsPages: false,
     });
 
   await page.reload();
@@ -807,6 +820,12 @@ test("a change survives a reload and opens on another device, while another user
     "data-reading-font",
     "literata",
   );
+
+  await expect(
+    (await openSettings(page)).getByRole("checkbox", {
+      name: "Wheel turns pages",
+    }),
+  ).not.toBeChecked();
 
   const device = await browser.newContext({
     baseURL: server.url,
@@ -827,6 +846,11 @@ test("a change survives a reload and opens on another device, while another user
     "data-reading-font",
     "literata",
   );
+  await expect(
+    (await openSettings(second)).getByRole("checkbox", {
+      name: "Wheel turns pages",
+    }),
+  ).not.toBeChecked();
   await device.close();
 
   const other = await browser.newContext({ baseURL: server.url });
@@ -865,6 +889,11 @@ test("a change survives a reload and opens on another device, while another user
     "data-reading-font",
     "default",
   );
+  await expect(
+    (await openSettings(othersPage)).getByRole("checkbox", {
+      name: "Wheel turns pages",
+    }),
+  ).toBeChecked();
   await other.close();
 });
 

@@ -460,6 +460,7 @@ test("pages progression uses the extended final spread for capture and restore",
     article: content,
     availableWidth: () => 1000,
     textWidthRem: () => 18.75,
+    wheelTurnsPages: () => true,
     onExhausted: () => {},
   });
   try {
