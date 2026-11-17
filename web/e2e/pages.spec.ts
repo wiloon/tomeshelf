@@ -58,7 +58,7 @@ async function openBook(page: Page): Promise<string> {
     .setInputFiles(path.join(books, "reader.epub"));
   await expect(page.getByRole("status")).toHaveText(`Imported ${title}.`);
   await page.getByRole("link", { name: new RegExp(title) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(article(page)).toContainText("Document One");
   return new URL(page.url()).pathname.split("/")[2];
 }
@@ -605,7 +605,7 @@ test("a late-loading font keeps the first visible character on the spread", asyn
     "Imported A Hand-Made Fonts Book.",
   );
   await page.getByRole("link", { name: /A Hand-Made Fonts Book/ }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   const id = new URL(page.url()).pathname.split("/")[2];
   await page.goto(`/books/${id}/read/2`);
   await expect(article(page)).toContainText("Long fonts document paragraph 1");
@@ -691,7 +691,7 @@ async function openSemanticsCommon(page: Page): Promise<string> {
     `Imported ${semanticsTitle}.`,
   );
   await page.getByRole("link", { name: new RegExp(semanticsTitle) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   const id = new URL(page.url()).pathname.split("/")[2];
   await page.goto(`/books/${id}/read/5`);
   await expect(article(page)).toContainText("Common Elements");

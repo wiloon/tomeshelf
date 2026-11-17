@@ -111,7 +111,7 @@ async function setupReader(page: Page, font: string = "default") {
     .setInputFiles(path.join(books, "fonts.epub"));
   await expect(page.getByRole("status")).toHaveText(`Imported ${title}.`);
   await page.getByRole("link", { name: new RegExp(title) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(article(page)).toContainText("A regular paragraph");
   return new URL(page.url()).pathname.split("/")[2];
 }

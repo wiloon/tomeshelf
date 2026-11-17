@@ -41,6 +41,14 @@ test("import EPUBs into the library and see the refusals", async ({ page }) => {
     "Imported A Hand-Made EPUB 3.",
   );
   await expectOneEntry();
+  const listed = await page.request.get("/api/books");
+  expect(listed.status()).toBe(200);
+  const [{ id }] = (await listed.json()) as { id: string }[];
+  expect(typeof id).toBe("string");
+  await expect(entries.getByRole("link")).toHaveAttribute(
+    "href",
+    `/books/${id}/read`,
+  );
 
   await page.reload();
   await expectOneEntry();

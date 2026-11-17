@@ -38,7 +38,7 @@ async function importBook(page: Page, file: string, title: string) {
 // document shows.
 async function chooseBook(page: Page, title: string, text: string) {
   await page.getByRole("link", { name: new RegExp(title) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(article(page)).toContainText(text);
   return new URL(page.url()).pathname.split("/")[2];
 }

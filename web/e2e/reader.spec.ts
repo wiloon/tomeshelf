@@ -52,7 +52,7 @@ async function openBook(
     .setInputFiles(path.join(books, book.file));
   await expect(page.getByRole("status")).toHaveText(`Imported ${book.title}.`);
   await page.getByRole("link", { name: new RegExp(book.title) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(article(page)).toContainText(book.text);
   const id = new URL(page.url()).pathname.split("/")[2];
   return id;
@@ -156,7 +156,7 @@ test("a book with a translated title opens in the reader", async ({ page }) => {
     .setInputFiles(path.join(books, "translated-title.epub"));
   await expect(page.getByRole("status")).toContainText("Imported");
   await page.getByRole("link", { name: /A Hand-Made Reading Book/ }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   const manifest = await page.request.get(
     new URL(page.url()).pathname
       .replace(/read\/1$/, "manifest")

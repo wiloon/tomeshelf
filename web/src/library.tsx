@@ -12,7 +12,7 @@ import {
 import { continueReadingBook } from "./continue-reading";
 
 type Book = {
-  id: number;
+  id: string;
   title: string;
   authors: string[];
   progress?: number;
@@ -424,7 +424,7 @@ export function LibraryPage() {
             <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-6">
               <Link
                 to="/books/$id/read"
-                params={{ id: String(continuing.id) }}
+                params={{ id: continuing.id }}
                 aria-label="Resume from cover"
                 className="w-24 shrink-0 sm:w-32"
               >
@@ -447,7 +447,7 @@ export function LibraryPage() {
                 )}
                 <Link
                   to="/books/$id/read"
-                  params={{ id: String(continuing.id) }}
+                  params={{ id: continuing.id }}
                   className="rounded bg-[var(--action-accent)] px-5 py-2 font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-accent)]"
                 >
                   Resume
@@ -468,7 +468,7 @@ export function LibraryPage() {
               >
                 <Link
                   to="/books/$id/read"
-                  params={{ id: String(book.id) }}
+                  params={{ id: book.id }}
                   className="flex flex-col gap-1 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-accent)]"
                 >
                   <Cover book={book} />

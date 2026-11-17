@@ -26,7 +26,7 @@ import (
 type listedBook struct {
 	ImportedAt int64    `json:"importedAt"`
 	SavedAt    *int64   `json:"savedAt"`
-	ID         int64    `json:"id"`
+	ID         int64    `json:"id,string"`
 	Title      string   `json:"title"`
 	Authors    []string `json:"authors"`
 	Progress   *int     `json:"progress"`
@@ -138,6 +138,37 @@ func requireRefused(t *testing.T, res *http.Response, status int, message string
 	if got := jsonError(t, res); !strings.Contains(got, message) {
 		t.Errorf("error = %q, want it to contain %q", got, message)
 	}
+}
+
+func TestBookIDsAreStringsInImportAndLibraryResponses(t *testing.T) {
+	e := newEnv(t, buildFS())
+	cookie := e.setup(t)
+	res := e.importBook(t, cookie, fixture(t, "epub3.epub"))
+	requireStatus(t, res, http.StatusCreated)
+	var imported struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body(t, res)), &imported); err != nil {
+		t.Fatalf("import id must be a string: %v", err)
+	}
+	if imported.ID == "" {
+		t.Fatal("import returned an empty id")
+	}
+	res = e.get(t, "/api/books", cookie)
+	requireStatus(t, res, http.StatusOK)
+	var listed []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body(t, res)), &listed); err != nil {
+		t.Fatalf("library ids must be strings: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != imported.ID {
+		t.Fatalf("listed ids = %+v, want %q", listed, imported.ID)
+	}
+	// The string from the API works unchanged in a production book address.
+	res = e.get(t, "/api/books/"+imported.ID+"/manifest", cookie)
+	requireStatus(t, res, http.StatusOK)
+	_ = res.Body.Close()
 }
 
 func TestImportedBooksAreListedWithTitleAndAuthorsAndSurviveARestart(t *testing.T) {

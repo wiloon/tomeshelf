@@ -71,7 +71,7 @@ async function importSemantics(page: Page): Promise<string> {
     isSettings(res.request(), "GET"),
   );
   await page.getByRole("link", { name: new RegExp(title) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(article(page)).toContainText(documents.poetry.text);
   await settingsLoaded;
   return new URL(page.url()).pathname.split("/")[2];
@@ -870,11 +870,7 @@ test("a change survives a reload and opens on another device, while another user
   const loaded = othersPage.waitForResponse((res) =>
     isSettings(res.request(), "GET"),
   );
-  await openDocument(
-    othersPage,
-    String((await imported.json()).id),
-    documents.common,
-  );
+  await openDocument(othersPage, (await imported.json()).id, documents.common);
   expect((await loaded).status()).toBe(200);
   await expect(article(othersPage)).toHaveCSS("font-size", "18px");
   await expect(othersPage.locator("html")).toHaveAttribute(

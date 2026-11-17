@@ -69,7 +69,7 @@ async function importChapters(page: Page) {
 
 async function openFromLibrary(page: Page) {
   await page.getByRole("link", { name: new RegExp(chapters) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(article(page)).toContainText("CHAPTER I.");
   return new URL(page.url()).pathname.split("/")[2];
 }
@@ -83,7 +83,7 @@ function positionPuts(page: Page) {
   page.on("request", (req) => {
     if (
       req.method() === "PUT" &&
-      /\/api\/books\/\d+\/position$/.test(req.url())
+      /\/api\/books\/[^/]+\/position$/.test(req.url())
     ) {
       puts.push(req);
     }
@@ -394,7 +394,7 @@ test("a failed position save cannot follow a different user into their session",
   const failedSave = page.waitForResponse(
     (response) =>
       response.request().method() === "PUT" &&
-      /\/api\/books\/\d+\/position$/.test(response.url()) &&
+      /\/api\/books\/[^/]+\/position$/.test(response.url()) &&
       response.status() === 500,
   );
   await page.evaluate(() => window.scrollTo(0, 500));
@@ -698,7 +698,7 @@ test("a position 404 opens document 1 with no message; a 5xx shows the message",
     await route.continue();
   });
   await page.getByRole("link", { name: new RegExp(chapters) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(article(page)).toContainText("CHAPTER I.");
   await expect(
     page.getByText("The reading position could not be loaded."),
@@ -714,7 +714,7 @@ test("a position 404 opens document 1 with no message; a 5xx shows the message",
     await route.continue();
   });
   await page.getByRole("link", { name: new RegExp(chapters) }).click();
-  await expect(page).toHaveURL(/\/books\/\d+\/read\/1$/);
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
   await expect(
     page.getByText("The reading position could not be loaded."),
   ).toBeVisible();
@@ -1445,7 +1445,7 @@ test("a stored href outside the reading order opens document 1 at its start", as
   const id = await openFromLibrary(page);
   // The server rejects a PUT with an href outside the reading order; a
   // position whose href later leaves the order is served as a GET body.
-  await page.route(/\/api\/books\/\d+\/position$/, async (route) => {
+  await page.route(/\/api\/books\/[^/]+\/position$/, async (route) => {
     if (route.request().method() !== "GET") {
       await route.continue();
       return;
