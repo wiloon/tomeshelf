@@ -23,11 +23,11 @@ const test = base.extend<{ server: TestServer }>({
 const books = path.resolve(import.meta.dirname, "../../testdata/books");
 const title = "The Time Machine";
 
-function entry(page: Page): Locator {
+function entry(page: Page, bookTitle = title): Locator {
   return page
     .getByRole("list", { name: "Library" })
     .getByRole("listitem")
-    .filter({ hasText: title });
+    .filter({ hasText: bookTitle });
 }
 
 function isDelete(request: Request): boolean {
@@ -54,22 +54,26 @@ async function expectCover(page: Page) {
 }
 
 // Opens the confirmation for the book and returns the dialog.
-async function askToDelete(page: Page, keyboard = false): Promise<Locator> {
-  const button = entry(page).getByRole("button", {
-    name: `More actions for ${title}`,
+async function askToDelete(
+  page: Page,
+  keyboard = false,
+  bookTitle = title,
+): Promise<Locator> {
+  const button = entry(page, bookTitle).getByRole("button", {
+    name: `More actions for ${bookTitle}`,
   });
   if (keyboard) {
     await expect(button).toBeFocused();
     await page.keyboard.press("Enter");
     await page.keyboard.press("Enter");
   } else {
-    await entry(page).hover();
+    await entry(page, bookTitle).hover();
     await button.click();
     await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
   }
   const dialog = page.getByRole("dialog", { name: "Delete book" });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText(title);
+  await expect(dialog).toContainText(bookTitle);
   return dialog;
 }
 
@@ -95,6 +99,7 @@ test("a book is deleted after confirming, and cancelling keeps it", async ({
   });
 
   let dialog = await askToDelete(page);
+  await expect(dialog.getByRole("checkbox")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toBeHidden();
   await expect(entry(page)).toHaveCount(1);
@@ -206,3 +211,103 @@ test("a book imported after another was deleted never shows the deleted book's t
   const idB = new URL(page.url()).pathname.split("/")[2];
   expect(idB).not.toBe(idA);
 });
+
+for (const keep of [true, false]) {
+  test(`deleting with keep position ${keep} controls progress and resume after reimport`, async ({
+    page,
+  }) => {
+    await signedIn(page);
+    const bookTitle = "A Hand-Made Book of Chapters";
+    const importBook = async () => {
+      await page
+        .getByLabel("Import an EPUB")
+        .setInputFiles(path.join(books, "chapters.epub"));
+      await expect(page.getByRole("status")).toHaveText(
+        `Imported ${bookTitle}.`,
+      );
+    };
+    await importBook();
+    await entry(page, bookTitle).getByRole("link").click();
+    await expect(page).toHaveURL(/\/read\/1$/);
+    const id = new URL(page.url()).pathname.split("/")[2];
+    const saved = page.waitForResponse(
+      (res) =>
+        res.request().method() === "PUT" && res.url().endsWith("/position"),
+    );
+    await page
+      .getByRole("navigation", { name: "Reading order" })
+      .getByRole("button", { name: "Next" })
+      .click();
+    expect((await saved).status()).toBe(204);
+    const position = await (
+      await page.request.get(`/api/books/${id}/position`)
+    ).json();
+    expect(position.locations.progression).toBeGreaterThan(0);
+    await page.getByRole("link", { name: "Library", exact: true }).click();
+    const progress = entry(page, bookTitle).getByRole("progressbar");
+    const value = await progress.getAttribute("aria-valuenow");
+    await expect(
+      page.getByRole("region", { name: "Continue reading" }),
+    ).toBeVisible();
+    let dialog = await askToDelete(page, false, bookTitle);
+    let checkbox = dialog.getByRole("checkbox", {
+      name: "Keep my reading position for when I import this book again",
+    });
+    await expect(checkbox).not.toBeChecked();
+    await checkbox.focus();
+    await page.keyboard.press("Space");
+    await expect(checkbox).toBeChecked();
+    const deletes: Request[] = [];
+    page.on("request", (req) => {
+      if (isDelete(req)) deletes.push(req);
+    });
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+    await expect(entry(page, bookTitle)).toHaveCount(1);
+    expect(deletes).toHaveLength(0);
+    dialog = await askToDelete(page, false, bookTitle);
+    checkbox = dialog.getByRole("checkbox");
+    await expect(checkbox).not.toBeChecked();
+    if (keep) await checkbox.check();
+    const deleted = page.waitForResponse((res) => isDelete(res.request()));
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    expect((await deleted).status()).toBe(204);
+    expect(new URL(deletes[0].url()).search).toBe(
+      keep ? "?keepPosition=true" : "",
+    );
+    await expect(entry(page, bookTitle)).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: "Continue reading" }),
+    ).toHaveCount(0);
+    await importBook();
+    if (keep) {
+      await expect(progress).toHaveAttribute("aria-valuenow", value ?? "");
+      await expect(
+        page.getByRole("region", { name: "Continue reading" }),
+      ).toBeVisible();
+    } else {
+      await expect(progress).toHaveCount(0);
+      await expect(
+        page.getByRole("region", { name: "Continue reading" }),
+      ).toHaveCount(0);
+    }
+    await entry(page, bookTitle).getByRole("link").click();
+    await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+    const offset = () =>
+      page.locator("#tomeshelf-content").evaluate((el) => el.scrollLeft);
+    if (keep) await expect.poll(offset).toBeGreaterThan(0);
+    else await expect.poll(offset).toBe(0);
+    if (keep) {
+      const visible = await page
+        .locator("#tomeshelf-content")
+        .evaluate((el, selector) => {
+          const block = el.querySelector(selector);
+          if (!block) return false;
+          const box = el.getBoundingClientRect();
+          const at = block.getBoundingClientRect();
+          return at.right > box.left && at.left < box.right;
+        }, position.locations.cssSelector);
+      expect(visible).toBe(true);
+    }
+  });
+}

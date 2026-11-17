@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/wiloon/tomeshelf/internal/library"
@@ -116,7 +117,22 @@ func (s *site) deleteBook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	err := s.books.Delete(r.Context(), user, id)
+	if _, err := s.books.Book(r.Context(), user, id); err != nil {
+		if errors.Is(err, store.ErrUnknownBook) {
+			writeError(w, http.StatusNotFound, "not found")
+		} else {
+			s.apiError(w, err)
+		}
+		return
+	}
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	values, present := query["keepPosition"]
+	if err != nil || (present && (len(values) != 1 || (values[0] != "true" && values[0] != "false"))) {
+		writeError(w, http.StatusBadRequest, "keepPosition must be true or false")
+		return
+	}
+	keepPosition := present && values[0] == "true"
+	err = s.books.Delete(r.Context(), user, id, keepPosition)
 	var leftover *library.LeftoverError
 	switch {
 	case err == nil:

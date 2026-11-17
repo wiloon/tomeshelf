@@ -283,11 +283,11 @@ func (s *Store) Book(ctx context.Context, username string, id string) (Book, err
 	return b, nil
 }
 
-// DeleteBook deletes the book with the id from the user's library, together
-// with that user's reading position and tab sequences for it, in one
-// transaction. It returns ErrUnknownBook, and changes nothing, when the user's
-// library has no such book.
-func (s *Store) DeleteBook(ctx context.Context, username string, id string) error {
+// DeleteBook deletes the book from the user's library in one transaction.
+// Unless keepPosition is true, it also deletes the user's reading position
+// and tab sequences. It returns ErrUnknownBook, and changes nothing, when
+// the user's library has no such book.
+func (s *Store) DeleteBook(ctx context.Context, username string, id string, keepPosition bool) error {
 	return s.inTx(ctx, func(q *dbq.Queries) error {
 		userID, err := q.DeleteBook(ctx, dbq.DeleteBookParams{ID: id, Username: username})
 		if errors.Is(err, sql.ErrNoRows) {
@@ -295,6 +295,9 @@ func (s *Store) DeleteBook(ctx context.Context, username string, id string) erro
 		}
 		if err != nil {
 			return err
+		}
+		if keepPosition {
+			return nil
 		}
 		if err := q.DeleteReadingPosition(ctx, dbq.DeleteReadingPositionParams{UserID: userID, BookID: id}); err != nil {
 			return err

@@ -359,7 +359,7 @@ func TestDeletionsRacingImportsAndThumbnailsKeepRowsAndFilesTogether(t *testing.
 				t.Fatal(err)
 			}
 			wg.Go(func() {
-				if err := tl.Delete(ctx, u, b.ID); err != nil && !errors.Is(err, store.ErrUnknownBook) {
+				if err := tl.Delete(ctx, u, b.ID, false); err != nil && !errors.Is(err, store.ErrUnknownBook) {
 					t.Errorf("Delete: %v", err)
 				}
 			})
@@ -423,7 +423,7 @@ func TestAThumbnailRacingADeleteAndReimportCachesTheCover(t *testing.T) {
 		done <- err
 	}()
 	<-h.entered
-	if err := tl.Delete(context.Background(), reader, b.ID); err != nil {
+	if err := tl.Delete(context.Background(), reader, b.ID, false); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
 	if tl.exists(t, b.ID, ".epub") {
@@ -446,19 +446,19 @@ func TestDeleteRemovesTheOriginalAndCacheOnlyWhenNoRowNamesThem(t *testing.T) {
 	tl.addUser(t, "other")
 	book := coverEPUB(t, 600, 900)
 	mine := tl.importBook(t, reader, book)
-	if err := tl.Delete(context.Background(), "other", mine.ID); !errors.Is(err, store.ErrUnknownBook) {
+	if err := tl.Delete(context.Background(), "other", mine.ID, false); !errors.Is(err, store.ErrUnknownBook) {
 		t.Fatalf("Delete of another user's book err = %v, want ErrUnknownBook", err)
 	}
 	theirs := tl.importBook(t, "other", book)
 	tl.requireThumbnail(t, reader, mine)
 
-	if err := tl.Delete(context.Background(), reader, mine.ID); err != nil {
+	if err := tl.Delete(context.Background(), reader, mine.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	if !tl.exists(t, mine.ID, ".epub") || !tl.exists(t, mine.ID, ".jpg") {
 		t.Fatal("the shared original or cache was removed while a row names it")
 	}
-	if err := tl.Delete(context.Background(), "other", theirs.ID); err != nil {
+	if err := tl.Delete(context.Background(), "other", theirs.ID, false); err != nil {
 		t.Fatal(err)
 	}
 	for _, ext := range []string{".epub", ".jpg", ".none"} {
@@ -466,7 +466,7 @@ func TestDeleteRemovesTheOriginalAndCacheOnlyWhenNoRowNamesThem(t *testing.T) {
 			t.Errorf("%s is left after the last row went", ext)
 		}
 	}
-	if err := tl.Delete(context.Background(), "other", theirs.ID); !errors.Is(err, store.ErrUnknownBook) {
+	if err := tl.Delete(context.Background(), "other", theirs.ID, false); !errors.Is(err, store.ErrUnknownBook) {
 		t.Errorf("second Delete err = %v, want ErrUnknownBook", err)
 	}
 }
