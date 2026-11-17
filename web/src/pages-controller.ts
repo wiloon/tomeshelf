@@ -270,6 +270,9 @@ export function attachPagesController(
   };
 
   const onWheel = (event: WheelEvent) => {
+    if (event.ctrlKey) {
+      return;
+    }
     const deltaX =
       Math.abs(event.deltaX) > Math.abs(event.deltaY)
         ? event.deltaX
