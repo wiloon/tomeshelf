@@ -28,6 +28,9 @@ const (
 	adminPassword = "correct horse battery staple"
 )
 
+// absentID is a well-formed book id that no test imports.
+var absentID = strings.Repeat("0", 63) + "1"
+
 func buildFS() fstest.MapFS {
 	return fstest.MapFS{
 		"index.html":             {Data: []byte(shellHTML)},

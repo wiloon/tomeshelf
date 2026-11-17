@@ -22,7 +22,7 @@ var ErrNoFile = errors.New("no such file in the package")
 // Manifest returns the RWPM manifest, as JSON, of the book with the id in the
 // user's library. It returns store.ErrUnknownBook, having read no file, when
 // the user's library has no such book.
-func (l *Library) Manifest(ctx context.Context, username string, id int64) ([]byte, error) {
+func (l *Library) Manifest(ctx context.Context, username string, id string) ([]byte, error) {
 	original, err := l.original(ctx, username, id)
 	if err != nil {
 		return nil, err
@@ -42,7 +42,7 @@ func (l *Library) Manifest(ctx context.Context, username string, id int64) ([]by
 // store.ErrUnknownBook, having read no file, when the user's library has no
 // such book, and ErrNoFile, having read nothing outside the EPUB, when path
 // is not a file in the package.
-func (l *Library) PackageFile(ctx context.Context, username string, id int64, path string) ([]byte, string, error) {
+func (l *Library) PackageFile(ctx context.Context, username string, id string, path string) ([]byte, string, error) {
 	if !fs.ValidPath(path) || path == "." || strings.Contains(path, `\`) {
 		return nil, "", ErrNoFile
 	}
@@ -67,12 +67,12 @@ func (l *Library) PackageFile(ctx context.Context, username string, id int64, pa
 
 // original returns the path of the original EPUB of the book with the id in
 // the user's library.
-func (l *Library) original(ctx context.Context, username string, id int64) (string, error) {
+func (l *Library) original(ctx context.Context, username string, id string) (string, error) {
 	book, err := l.store.Book(ctx, username, id)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(l.booksDir, book.SHA256+".epub"), nil
+	return filepath.Join(l.booksDir, book.ID+".epub"), nil
 }
 
 // mediaType returns the media type the manifest gives the file at path, or

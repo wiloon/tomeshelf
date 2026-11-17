@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/wiloon/tomeshelf/internal/library"
@@ -25,8 +24,20 @@ type bookJSON struct {
 	Progress   *int     `json:"progress,omitempty"`
 }
 
+// bookID returns the {id} path value when it is a book id. Anything else
+// answers 404 here, before the id reaches the store or the filesystem
+// (ADR-0015).
+func bookID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	id := r.PathValue("id")
+	if !library.ValidID(id) {
+		writeError(w, http.StatusNotFound, "not found")
+		return "", false
+	}
+	return id, true
+}
+
 func toBookJSON(b store.Book) bookJSON {
-	out := bookJSON{ImportedAt: b.ImportedAt, ID: strconv.FormatInt(b.ID, 10), Title: b.Title, Authors: b.Authors, SavedAt: b.SavedAt}
+	out := bookJSON{ImportedAt: b.ImportedAt, ID: b.ID, Title: b.Title, Authors: b.Authors, SavedAt: b.SavedAt}
 	if b.TotalProgression != nil {
 		p := int(math.Floor(*b.TotalProgression * 100))
 		if p > 100 {
@@ -101,12 +112,11 @@ func (s *site) deleteBook(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+	id, ok := bookID(w, r)
+	if !ok {
 		return
 	}
-	err = s.books.Delete(r.Context(), user, id)
+	err := s.books.Delete(r.Context(), user, id)
 	var leftover *library.LeftoverError
 	switch {
 	case err == nil:
@@ -132,9 +142,8 @@ func (s *site) thumbnail(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+	id, ok := bookID(w, r)
+	if !ok {
 		return
 	}
 	thumb, err := s.books.Thumbnail(r.Context(), user, id)
@@ -162,9 +171,8 @@ func (s *site) manifest(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+	id, ok := bookID(w, r)
+	if !ok {
 		return
 	}
 	m, err := s.books.Manifest(r.Context(), user, id)
@@ -191,9 +199,8 @@ func (s *site) packageFile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil {
-		writeError(w, http.StatusNotFound, "not found")
+	id, ok := bookID(w, r)
+	if !ok {
 		return
 	}
 	data, mediaType, err := s.books.PackageFile(r.Context(), user, id, r.PathValue("path"))

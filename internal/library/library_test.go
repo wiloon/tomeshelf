@@ -178,7 +178,7 @@ func (tl testLibrary) requireThumbnail(t *testing.T, username string, b store.Bo
 	if _, err := jpeg.Decode(bytes.NewReader(thumb)); err != nil {
 		t.Fatalf("thumbnail is not a JPEG: %v", err)
 	}
-	if !tl.exists(t, b.SHA256, ".jpg") || tl.exists(t, b.SHA256, ".none") {
+	if !tl.exists(t, b.ID, ".jpg") || tl.exists(t, b.ID, ".none") {
 		t.Error("want .jpg cached and no .none")
 	}
 }
@@ -229,10 +229,10 @@ func TestAFailedInsertLeavesTheOriginalWhichARetryReuses(t *testing.T) {
 	}
 
 	b := tl.importBook(t, reader, book)
-	if b.SHA256 != sha(book) {
-		t.Errorf("SHA256 = %s, want %s", b.SHA256, sha(book))
+	if b.ID != sha(book) {
+		t.Errorf("SHA256 = %s, want %s", b.ID, sha(book))
 	}
-	if got, err := os.ReadFile(tl.path(b.SHA256, ".epub")); err != nil || !bytes.Equal(got, book) {
+	if got, err := os.ReadFile(tl.path(b.ID, ".epub")); err != nil || !bytes.Equal(got, book) {
 		t.Errorf("the original differs from the imported file: %v", err)
 	}
 	tl.requireThumbnail(t, reader, b)
@@ -244,14 +244,14 @@ func TestAnUnreadableOriginalCachesNothingUntilItIsReadable(t *testing.T) {
 	}
 	tl := newLibrary(t, nil)
 	b := tl.importBook(t, reader, coverEPUB(t, 600, 900))
-	original := tl.path(b.SHA256, ".epub")
+	original := tl.path(b.ID, ".epub")
 	if err := os.Chmod(original, 0); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(original, 0o600) })
 
 	_, err := tl.Thumbnail(context.Background(), reader, b.ID)
-	tl.requireNoCache(t, b.SHA256, err)
+	tl.requireNoCache(t, b.ID, err)
 
 	if err := os.Chmod(original, 0o600); err != nil {
 		t.Fatal(err)
@@ -311,7 +311,7 @@ func TestAReadErrorOnTheCoverCachesNothingAndTheNextRequestMakesIt(t *testing.T)
 	if !errors.Is(err, syscall.EIO) {
 		t.Errorf("Thumbnail err = %v, want it to wrap EIO", err)
 	}
-	tl.requireNoCache(t, b.SHA256, err)
+	tl.requireNoCache(t, b.ID, err)
 
 	tl.requireThumbnail(t, reader, b)
 }
@@ -327,7 +327,7 @@ func (tl testLibrary) requireConsistent(t *testing.T, sum string, users ...strin
 			t.Fatal(err)
 		}
 		for _, b := range books {
-			named = named || b.SHA256 == sum
+			named = named || b.ID == sum
 		}
 	}
 	if got := tl.exists(t, sum, ".epub"); got != named {
@@ -398,7 +398,7 @@ type heldBook struct {
 	released chan struct{}
 }
 
-func (h heldBook) Book(ctx context.Context, username string, id int64) (store.Book, error) {
+func (h heldBook) Book(ctx context.Context, username string, id string) (store.Book, error) {
 	b, err := h.Store.Book(ctx, username, id)
 	if h.hold.Swap(false) {
 		close(h.entered)
@@ -426,7 +426,7 @@ func TestAThumbnailRacingADeleteAndReimportCachesTheCover(t *testing.T) {
 	if err := tl.Delete(context.Background(), reader, b.ID); err != nil {
 		t.Fatalf("Delete: %v", err)
 	}
-	if tl.exists(t, b.SHA256, ".epub") {
+	if tl.exists(t, b.ID, ".epub") {
 		t.Fatal("the original is left after the deletion")
 	}
 	again := tl.importBook(t, reader, book)
@@ -434,7 +434,7 @@ func TestAThumbnailRacingADeleteAndReimportCachesTheCover(t *testing.T) {
 	if err := <-done; err != nil && !errors.Is(err, store.ErrUnknownBook) {
 		t.Fatalf("Thumbnail: %v", err)
 	}
-	if tl.exists(t, b.SHA256, ".none") {
+	if tl.exists(t, b.ID, ".none") {
 		t.Fatal(".none is cached for a book with a usable cover")
 	}
 	tl.requireThumbnail(t, reader, again)
@@ -446,23 +446,23 @@ func TestDeleteRemovesTheOriginalAndCacheOnlyWhenNoRowNamesThem(t *testing.T) {
 	tl.addUser(t, "other")
 	book := coverEPUB(t, 600, 900)
 	mine := tl.importBook(t, reader, book)
-	theirs := tl.importBook(t, "other", book)
-	tl.requireThumbnail(t, reader, mine)
-
 	if err := tl.Delete(context.Background(), "other", mine.ID); !errors.Is(err, store.ErrUnknownBook) {
 		t.Fatalf("Delete of another user's book err = %v, want ErrUnknownBook", err)
 	}
+	theirs := tl.importBook(t, "other", book)
+	tl.requireThumbnail(t, reader, mine)
+
 	if err := tl.Delete(context.Background(), reader, mine.ID); err != nil {
 		t.Fatal(err)
 	}
-	if !tl.exists(t, mine.SHA256, ".epub") || !tl.exists(t, mine.SHA256, ".jpg") {
+	if !tl.exists(t, mine.ID, ".epub") || !tl.exists(t, mine.ID, ".jpg") {
 		t.Fatal("the shared original or cache was removed while a row names it")
 	}
 	if err := tl.Delete(context.Background(), "other", theirs.ID); err != nil {
 		t.Fatal(err)
 	}
 	for _, ext := range []string{".epub", ".jpg", ".none"} {
-		if tl.exists(t, mine.SHA256, ext) {
+		if tl.exists(t, mine.ID, ext) {
 			t.Errorf("%s is left after the last row went", ext)
 		}
 	}

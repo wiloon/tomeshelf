@@ -135,7 +135,7 @@ func grayPNG(t *testing.T, w, h int) []byte {
 }
 
 // importedID imports book and returns its id.
-func (e env) importedID(t *testing.T, cookie *http.Cookie, book []byte) int64 {
+func (e env) importedID(t *testing.T, cookie *http.Cookie, book []byte) string {
 	t.Helper()
 	res := e.importBook(t, cookie, book)
 	requireStatus(t, res, http.StatusCreated)
@@ -146,13 +146,13 @@ func (e env) importedID(t *testing.T, cookie *http.Cookie, book []byte) int64 {
 	return got.ID
 }
 
-func thumbnailPath(id int64) string {
-	return fmt.Sprintf("/api/books/%d/thumbnail", id)
+func thumbnailPath(id string) string {
+	return fmt.Sprintf("/api/books/%s/thumbnail", id)
 }
 
 // thumbnail requests the book's thumbnail, with If-None-Match when etag is
 // not empty.
-func (e env) thumbnail(t *testing.T, id int64, cookie *http.Cookie, etag string) *http.Response {
+func (e env) thumbnail(t *testing.T, id string, cookie *http.Cookie, etag string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodGet, thumbnailPath(id), nil)
 	if err != nil {
@@ -289,7 +289,7 @@ func TestThumbnailsAreServedOnlyToTheSignedInOwner(t *testing.T) {
 		requireNoImage(t, e.thumbnail(t, id, nil, ""), http.StatusUnauthorized)
 		requireNoImage(t, e.thumbnail(t, id, forged, ""), http.StatusUnauthorized)
 		requireNoImage(t, e.thumbnail(t, othersID, admin, ""), http.StatusNotFound)
-		requireNoImage(t, e.thumbnail(t, 9999, admin, ""), http.StatusNotFound)
+		requireNoImage(t, e.thumbnail(t, absentID, admin, ""), http.StatusNotFound)
 		requireNoImage(t, e.get(t, "/api/books/abc/thumbnail", admin), http.StatusNotFound)
 		if files := e.cacheFiles(t); len(files) != 0 {
 			t.Errorf("cache/ = %v, want no thumbnail made for a refused request", slices.Collect(maps.Keys(files)))
@@ -375,7 +375,7 @@ func TestBooksWithoutAUsableCoverAnswerNoCoverAndStayListed(t *testing.T) {
 			requireNoCover(t, e.thumbnail(t, id, cookie, ""))
 			requireNoCover(t, e.thumbnail(t, id, cookie, ""))
 			if !slices.ContainsFunc(e.books(t, cookie), func(b listedBook) bool { return b.ID == id }) {
-				t.Errorf("book %d is not listed", id)
+				t.Errorf("book %s is not listed", id)
 			}
 		})
 	}

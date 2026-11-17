@@ -196,15 +196,15 @@ func (s *Store) ResetPassword(ctx context.Context, username, passwordHash string
 	})
 }
 
-// Book is one book in a user's library. SHA256 is the hex digest of its
-// original EPUB, which names the file (ADR-0007). TotalProgression is set when
-// the user has a stored reading position for the book. SavedAt is the Unix
-// millisecond time of its last accepted save, absent for pre-migration positions.
+// Book is one book in a user's library. ID is the lowercase hex SHA-256 of
+// its original EPUB, which also names the file (ADR-0007, ADR-0015).
+// TotalProgression is set when the user has a stored reading position for the
+// book. SavedAt is the Unix millisecond time of its last accepted save, absent
+// for pre-migration positions.
 type Book struct {
 	// ImportedAt is the Unix second when this book entered the user's library.
 	ImportedAt       int64
-	ID               int64
-	SHA256           string
+	ID               string
 	Title            string
 	Authors          []string
 	TotalProgression *float64
@@ -213,7 +213,7 @@ type Book struct {
 
 // AddBook adds the book to the user's library and returns it with its id. It
 // returns ErrBookExists, and changes nothing, when the user's library already
-// has a book with the same SHA256.
+// has a book with the same ID.
 func (s *Store) AddBook(ctx context.Context, username string, b Book) (Book, error) {
 	if b.Authors == nil {
 		b.Authors = []string{}
@@ -225,7 +225,7 @@ func (s *Store) AddBook(ctx context.Context, username string, b Book) (Book, err
 	b.ImportedAt = s.Now().Unix()
 	id, err := s.q.InsertBook(ctx, dbq.InsertBookParams{
 		Username:   username,
-		Sha256:     b.SHA256,
+		ID:         b.ID,
 		Title:      b.Title,
 		Authors:    string(authors),
 		ImportedAt: b.ImportedAt,
@@ -249,9 +249,9 @@ func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
 	}
 	books := make([]Book, 0, len(rows))
 	for _, row := range rows {
-		b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title, ImportedAt: row.ImportedAt}
+		b := Book{ID: row.ID, Title: row.Title, ImportedAt: row.ImportedAt}
 		if err := json.Unmarshal([]byte(row.Authors), &b.Authors); err != nil {
-			return nil, fmt.Errorf("book %d authors: %w", row.ID, err)
+			return nil, fmt.Errorf("book %s authors: %w", row.ID, err)
 		}
 		if row.TotalProgression.Valid {
 			tp := row.TotalProgression.Float64
@@ -268,7 +268,7 @@ func (s *Store) Books(ctx context.Context, username string) ([]Book, error) {
 
 // Book returns the book with the id in the user's library, or ErrUnknownBook
 // when the user's library has no such book.
-func (s *Store) Book(ctx context.Context, username string, id int64) (Book, error) {
+func (s *Store) Book(ctx context.Context, username string, id string) (Book, error) {
 	row, err := s.q.GetBook(ctx, dbq.GetBookParams{Username: username, ID: id})
 	if errors.Is(err, sql.ErrNoRows) {
 		return Book{}, ErrUnknownBook
@@ -276,28 +276,37 @@ func (s *Store) Book(ctx context.Context, username string, id int64) (Book, erro
 	if err != nil {
 		return Book{}, err
 	}
-	b := Book{ID: row.ID, SHA256: row.Sha256, Title: row.Title, ImportedAt: row.ImportedAt}
+	b := Book{ID: row.ID, Title: row.Title, ImportedAt: row.ImportedAt}
 	if err := json.Unmarshal([]byte(row.Authors), &b.Authors); err != nil {
-		return Book{}, fmt.Errorf("book %d authors: %w", row.ID, err)
+		return Book{}, fmt.Errorf("book %s authors: %w", row.ID, err)
 	}
 	return b, nil
 }
 
-// DeleteBook deletes the book with the id from the user's library and
-// returns its SHA256. It returns ErrUnknownBook, and changes nothing, when
-// the user's library has no such book.
-func (s *Store) DeleteBook(ctx context.Context, username string, id int64) (string, error) {
-	sum, err := s.q.DeleteBook(ctx, dbq.DeleteBookParams{ID: id, Username: username})
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrUnknownBook
-	}
-	return sum, err
+// DeleteBook deletes the book with the id from the user's library, together
+// with that user's reading position and tab sequences for it, in one
+// transaction. It returns ErrUnknownBook, and changes nothing, when the user's
+// library has no such book.
+func (s *Store) DeleteBook(ctx context.Context, username string, id string) error {
+	return s.inTx(ctx, func(q *dbq.Queries) error {
+		userID, err := q.DeleteBook(ctx, dbq.DeleteBookParams{ID: id, Username: username})
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrUnknownBook
+		}
+		if err != nil {
+			return err
+		}
+		if err := q.DeleteReadingPosition(ctx, dbq.DeleteReadingPositionParams{UserID: userID, BookID: id}); err != nil {
+			return err
+		}
+		return q.DeleteReadingPositionTabs(ctx, dbq.DeleteReadingPositionTabsParams{UserID: userID, BookID: id})
+	})
 }
 
 // BookFileNamed reports whether any user's library has a book whose original
 // has the SHA256.
-func (s *Store) BookFileNamed(ctx context.Context, sha256 string) (bool, error) {
-	return s.q.BookFileNamed(ctx, sha256)
+func (s *Store) BookFileNamed(ctx context.Context, id string) (bool, error) {
+	return s.q.BookFileNamed(ctx, id)
 }
 
 // ReadingSettings are a user's saved reading settings. The server checks them
@@ -363,8 +372,8 @@ type ReadingPosition struct {
 
 // ReadingPosition returns the user's stored position for the book, or
 // ErrUnknownBook when the user's library has no such book or no position.
-func (s *Store) ReadingPosition(ctx context.Context, username string, bookID int64) (ReadingPosition, error) {
-	row, err := s.q.GetReadingPosition(ctx, dbq.GetReadingPositionParams{Username: username, ID: bookID})
+func (s *Store) ReadingPosition(ctx context.Context, username string, bookID string) (ReadingPosition, error) {
+	row, err := s.q.GetReadingPosition(ctx, dbq.GetReadingPositionParams{Username: username, BookID: bookID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return ReadingPosition{}, ErrUnknownBook
 	}
@@ -411,7 +420,7 @@ const (
 // tab's highest accepted sequence, and records that sequence. An equal or
 // older sequence is ignored and the stored position is left as it is.
 // ErrUnknownBook means the user's library has no such book.
-func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID int64, tabID string, sequence int64, p ReadingPosition) (SaveReadingPositionResult, error) {
+func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID string, tabID string, sequence int64, p ReadingPosition) (SaveReadingPositionResult, error) {
 	var result SaveReadingPositionResult
 	err := s.inTx(ctx, func(q *dbq.Queries) error {
 		if _, err := q.GetBook(ctx, dbq.GetBookParams{Username: username, ID: bookID}); err != nil {
@@ -422,7 +431,7 @@ func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID
 		}
 		highest, err := q.GetTabHighestSequence(ctx, dbq.GetTabHighestSequenceParams{
 			Username: username,
-			ID:       bookID,
+			BookID:   bookID,
 			TabID:    tabID,
 		})
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {

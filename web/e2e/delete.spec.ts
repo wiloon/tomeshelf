@@ -160,3 +160,49 @@ test("a book the server no longer has leaves the library", async ({ page }) => {
   await expect(entry(page)).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
+
+test("a book imported after another was deleted never shows the deleted book's text", async ({
+  page,
+}) => {
+  await signedIn(page);
+  const a = { file: "chapters.epub", title: "A Hand-Made Book of Chapters" };
+  const b = { file: "reader.epub", title: "A Hand-Made Reading Book" };
+  const item = (t: string) =>
+    page
+      .getByRole("list", { name: "Library" })
+      .getByRole("listitem")
+      .filter({ hasText: t });
+  const importFile = async (book: { file: string; title: string }) => {
+    await page
+      .getByLabel("Import an EPUB")
+      .setInputFiles(path.join(books, book.file));
+    await expect(page.getByRole("status")).toHaveText(
+      `Imported ${book.title}.`,
+    );
+  };
+  const article = page.locator("article#tomeshelf-content");
+
+  await importFile(a);
+  await page.getByRole("link", { name: new RegExp(a.title) }).click();
+  await expect(article).toContainText("CHAPTER I.");
+  const idA = new URL(page.url()).pathname.split("/")[2];
+  await page.getByRole("link", { name: "Library", exact: true }).click();
+
+  await item(a.title).hover();
+  await item(a.title)
+    .getByRole("button", { name: `More actions for ${a.title}` })
+    .click();
+  await page.getByRole("menuitem", { name: "Delete", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Delete book" })
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(item(a.title)).toHaveCount(0);
+
+  await importFile(b);
+  await page.getByRole("link", { name: new RegExp(b.title) }).click();
+  await expect(article).toContainText("Document One");
+  await expect(article).not.toContainText("CHAPTER I.");
+  const idB = new URL(page.url()).pathname.split("/")[2];
+  expect(idB).not.toBe(idA);
+});

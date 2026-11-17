@@ -12,12 +12,12 @@ import (
 )
 
 // ReadingPosition returns the user's stored position for the book.
-func (l *Library) ReadingPosition(ctx context.Context, username string, bookID int64) (store.ReadingPosition, error) {
+func (l *Library) ReadingPosition(ctx context.Context, username string, bookID string) (store.ReadingPosition, error) {
 	return l.store.ReadingPosition(ctx, username, bookID)
 }
 
 // SaveReadingPosition stores a reading position for the book.
-func (l *Library) SaveReadingPosition(ctx context.Context, username string, bookID int64, tabID string, sequence int64, p store.ReadingPosition) (store.SaveReadingPositionResult, error) {
+func (l *Library) SaveReadingPosition(ctx context.Context, username string, bookID string, tabID string, sequence int64, p store.ReadingPosition) (store.SaveReadingPositionResult, error) {
 	return l.store.SaveReadingPosition(ctx, username, bookID, tabID, sequence, p)
 }
 
@@ -29,7 +29,7 @@ var ErrBadHref = errors.New("href is not in the reading order")
 // uncompressed size in the EPUB (ADR-0005). It returns store.ErrUnknownBook
 // when the user's library has no such book, and ErrBadHref when href names no
 // reading-order document.
-func (l *Library) TotalProgression(ctx context.Context, username string, id int64, href string, progression float64) (float64, error) {
+func (l *Library) TotalProgression(ctx context.Context, username string, id string, href string, progression float64) (float64, error) {
 	original, err := l.original(ctx, username, id)
 	if err != nil {
 		return 0, err
