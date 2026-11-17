@@ -31,7 +31,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: web/pnpm-lock.yaml
       - uses: go-task/setup-task@v2
-      - uses: ko-build/setup-ko@v0.9
+      - uses: ko-build/setup-ko@v0.10
       - run: task build:web
       - name: Sign in to GHCR
         env:
