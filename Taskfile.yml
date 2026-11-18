@@ -35,7 +35,7 @@ tasks:
   test:go:
     desc: Check Go formatting, vet and run the Go tests.
     cmds:
-      - test -z "$(gofmt -l cmd internal web)"
+      - test -z "$(gofmt -l cmd internal scripts web)"
       - go vet ./...
       - go test ./...
 
@@ -63,6 +63,7 @@ tasks:
   ci:
     desc: Run the same checks as CI. Needs no secrets and no container tooling.
     cmds:
+      - go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.11
       - task: lint
       - task: typecheck
       - task: test:web
