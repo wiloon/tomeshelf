@@ -1,0 +1,59 @@
+name: Deploy homelab
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    name: Deploy to homelab
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - uses: go-task/setup-task@v2
+      - uses: ko-build/setup-ko@v0.10
+      - run: task build:web
+      - name: Sign in to GHCR
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GITHUB_TOKEN" | ko login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Build and publish the image
+        env:
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository }}
+        run: >-
+          ko build --bare --platform=linux/amd64,linux/arm64
+          --tags="main-${GITHUB_SHA:0:7}"
+          --image-label="org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY"
+          ./cmd/tomeshelf
+      - uses: actions/checkout@v7
+        with:
+          repository: wiloon/w10n-config
+          ref: main
+          ssh-key: ${{ secrets.W10N_CONFIG_DEPLOY_KEY }}
+          fetch-depth: 0
+          path: w10n-config
+      - name: Select the image in w10n-config
+        run: bash scripts/deploy-homelab.sh "$GITHUB_WORKSPACE" w10n-config "$GITHUB_SHA"

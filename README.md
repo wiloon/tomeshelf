@@ -39,6 +39,8 @@ Keep these settings when you adapt it:
 
 The example has no Ingress. Put one, or another reverse proxy with TLS, in front of the Service.
 
+The homelab follows `main` through the [Deploy homelab workflow](.github/workflows/deploy-homelab.yml), which writes the selected image to `wiloon/w10n-config`. To recover a failed run, rerun it or dispatch the workflow on `main`.
+
 ### From source
 
 You need Go, Node.js with pnpm, and [Task](https://taskfile.dev):
