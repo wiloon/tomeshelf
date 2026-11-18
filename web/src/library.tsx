@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { continueReadingBook } from "./continue-reading";
+import { formatProgressLine } from "./progress-line";
 
 type Book = {
   id: string;
@@ -385,7 +386,7 @@ export function LibraryPage() {
   }, []);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1536px] flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       {dragging && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center border-4 border-dashed border-[var(--action-accent)] bg-(--page-bg) text-xl font-semibold">
           Drop an EPUB to import it
@@ -435,7 +436,7 @@ export function LibraryPage() {
         {continuing && (
           <section
             aria-labelledby={`${id}-continue`}
-            className="rounded-lg border border-stone-300 bg-(--panel-bg) p-4"
+            className="py-2 sm:w-fit sm:max-w-xl"
           >
             <h2 id={`${id}-continue`} className="mb-3 text-lg font-semibold">
               Continue reading
@@ -445,7 +446,7 @@ export function LibraryPage() {
                 to="/books/$id/read"
                 params={{ id: continuing.id }}
                 aria-label="Resume from cover"
-                className="w-24 shrink-0 sm:w-32"
+                className="w-24 shrink-0 sm:w-40"
               >
                 <Cover key={continuing.id} book={continuing} />
               </Link>
@@ -464,6 +465,13 @@ export function LibraryPage() {
                     {continuing.authors.join(", ")}
                   </p>
                 )}
+                <p className="text-sm">
+                  {formatProgressLine(
+                    continuing.progress,
+                    continuing.savedAt,
+                    Date.now(),
+                  )}
+                </p>
                 <Link
                   to="/books/$id/read"
                   params={{ id: continuing.id }}
@@ -476,48 +484,53 @@ export function LibraryPage() {
           </section>
         )}
         {books.data && books.data.length > 0 && (
-          <ul
-            aria-labelledby={`${id}-heading`}
-            className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4"
-          >
-            {books.data.map((book) => (
-              <li
-                key={book.id}
-                className="group flex min-w-0 max-w-[180px] flex-col gap-1"
-              >
-                <Link
-                  to="/books/$id/read"
-                  params={{ id: book.id }}
-                  className="flex flex-col gap-1 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-accent)]"
+          <>
+            <h2 id={`${id}-all-books`} className="text-lg font-semibold">
+              All books
+            </h2>
+            <ul
+              aria-labelledby={`${id}-all-books`}
+              className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-4"
+            >
+              {books.data.map((book) => (
+                <li
+                  key={book.id}
+                  className="group flex min-w-0 max-w-[180px] flex-col gap-1"
                 >
-                  <Cover book={book} />
-                  <span
-                    title={book.title}
-                    className="line-clamp-2 font-medium wrap-anywhere"
+                  <Link
+                    to="/books/$id/read"
+                    params={{ id: book.id }}
+                    className="flex flex-col gap-1 rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-accent)]"
                   >
-                    {book.title}
-                  </span>
-                  {book.authors.length > 0 && (
+                    <Cover book={book} />
                     <span
-                      title={book.authors.join(", ")}
-                      className="truncate text-sm text-stone-600"
+                      title={book.title}
+                      className="line-clamp-2 font-medium wrap-anywhere"
                     >
-                      {" "}
-                      <span className="sr-only">by </span>
-                      {book.authors.join(", ")}
+                      {book.title}
                     </span>
-                  )}
-                </Link>
-                <CardMenu
-                  book={book}
-                  onDelete={(button) => {
-                    deleteTrigger.current = button;
-                    setConfirming(book);
-                  }}
-                />
-              </li>
-            ))}
-          </ul>
+                    {book.authors.length > 0 && (
+                      <span
+                        title={book.authors.join(", ")}
+                        className="truncate text-sm text-stone-600"
+                      >
+                        {" "}
+                        <span className="sr-only">by </span>
+                        {book.authors.join(", ")}
+                      </span>
+                    )}
+                  </Link>
+                  <CardMenu
+                    book={book}
+                    onDelete={(button) => {
+                      deleteTrigger.current = button;
+                      setConfirming(book);
+                    }}
+                  />
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </section>
       <DeleteDialog

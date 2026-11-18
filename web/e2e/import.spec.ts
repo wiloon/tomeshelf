@@ -25,7 +25,7 @@ test("import EPUBs into the library and see the refusals", async ({ page }) => {
   await page.goto("/");
 
   const importControl = page.getByLabel("Import an EPUB");
-  const library = page.getByRole("list", { name: "Library" });
+  const library = page.getByRole("list", { name: "All books" });
   const entries = library.getByRole("listitem");
   const expectOneEntry = async () => {
     await expect(entries).toHaveCount(1);
@@ -168,7 +168,7 @@ test("library heading has an accessible primary action without mobile overflow",
   for (const populated of [false, true]) {
     if (populated) {
       await input.setInputFiles(path.join(books, "epub3.epub"));
-      await expect(page.getByRole("list", { name: "Library" })).toBeVisible();
+      await expect(page.getByRole("list", { name: "All books" })).toBeVisible();
     }
     expect(
       await page.evaluate(
@@ -338,7 +338,7 @@ test("EPUB drops share import busy state and recover after success and failure",
       await expect(page.getByRole("status")).toHaveText(
         "Imported A Hand-Made EPUB 3.",
       );
-      await expect(page.getByRole("list", { name: "Library" })).toContainText(
+      await expect(page.getByRole("list", { name: "All books" })).toContainText(
         "A Hand-Made EPUB 3",
       );
     }
