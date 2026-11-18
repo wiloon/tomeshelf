@@ -31,7 +31,7 @@ const thumbnailURL = /\/api\/books\/[^/]+\/thumbnail$/;
 
 function entry(page: Page, title: string): Locator {
   return page
-    .getByRole("list", { name: "Library" })
+    .getByRole("list", { name: "All books" })
     .getByRole("listitem")
     .filter({ hasText: title });
 }

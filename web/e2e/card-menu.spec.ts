@@ -24,7 +24,7 @@ const title = "The Time Machine";
 
 function entry(page: Page): Locator {
   return page
-    .getByRole("list", { name: "Library" })
+    .getByRole("list", { name: "All books" })
     .getByRole("listitem")
     .filter({ hasText: title });
 }
@@ -130,7 +130,7 @@ test("opening another card's menu leaves focus in that menu", async ({
       ),
     );
   const items = page
-    .getByRole("list", { name: "Library" })
+    .getByRole("list", { name: "All books" })
     .getByRole("listitem");
   await expect(items).toHaveCount(2);
   const triggers = page.getByRole("button", { name: /^More actions for / });

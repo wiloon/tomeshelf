@@ -100,7 +100,7 @@ export async function importBooks(page: Page, ...files: string[]) {
       throw new Error(`importing ${file}: ${text}`);
     }
     await page
-      .getByRole("list", { name: "Library" })
+      .getByRole("list", { name: "All books" })
       .getByRole("listitem")
       .filter({ hasText: title })
       .first()

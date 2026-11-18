@@ -30,14 +30,33 @@ test.describe("library layout", () => {
     );
     await page.goto("/");
     await expect(
-      page.getByRole("list", { name: "Library" }).getByRole("listitem"),
+      page.getByRole("list", { name: "All books" }).getByRole("listitem"),
     ).toHaveCount(12);
   });
 
-  test("the library fits more bounded covers on wide screens and stays centred", async ({
+  test("the grid is headed and labelled All books only when books exist", async ({
     page,
   }) => {
-    const list = page.getByRole("list", { name: "Library" });
+    await expect(
+      page.getByRole("heading", { name: "All books", level: 2 }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("list", { name: "All books" }).getByRole("listitem"),
+    ).toHaveCount(12);
+    await page.route("**/api/books", (route) => route.fulfill({ json: [] }));
+    await page.reload();
+    await expect(
+      page.getByText("No books yet. Import an EPUB to start reading."),
+    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "All books" })).toHaveCount(
+      0,
+    );
+  });
+
+  test("the library has bounded covers and equal centred columns on wide screens", async ({
+    page,
+  }) => {
+    const list = page.getByRole("list", { name: "All books" });
     const counts: number[] = [];
     for (const width of [390, 1280, 2000]) {
       await page.setViewportSize({ width, height: 900 });
@@ -58,6 +77,14 @@ test.describe("library layout", () => {
         expect(box.width).toBeGreaterThan(0);
         expect(box.width).toBeLessThanOrEqual(180);
       }
+      if (width >= 1280) {
+        const container = await list.locator("..").boundingBox();
+        if (!container) throw new Error("Library container missing");
+        expect(container.width).toBeLessThanOrEqual(1152);
+        expect(
+          Math.abs(container.x - (width - container.x - container.width)),
+        ).toBeLessThanOrEqual(1);
+      }
       if (width === 390) {
         expect(
           await page.evaluate(
@@ -71,14 +98,7 @@ test.describe("library layout", () => {
     expect(counts[0]).toBeGreaterThanOrEqual(2);
     expect(counts[0]).toBeLessThanOrEqual(3);
     expect(counts[1]).toBeGreaterThanOrEqual(6);
-    expect(counts[2]).toBeGreaterThan(counts[1]);
-    const container = await list.locator("..").boundingBox();
-    expect(container).not.toBeNull();
-    if (!container) throw new Error("Library container missing");
-    expect(container.width).toBeLessThanOrEqual(1536);
-    expect(
-      Math.abs(container.x - (2000 - container.x - container.width)),
-    ).toBeLessThanOrEqual(1);
+    expect(counts[2]).toBe(counts[1]);
   });
 
   test("cover bars expose progress without visible percentages on light and dark covers", async ({
@@ -121,7 +141,7 @@ test.describe("library layout", () => {
       }),
     );
     await page.reload();
-    const grid = page.getByRole("list", { name: "Library" });
+    const grid = page.getByRole("list", { name: "All books" });
     const unread = grid.getByRole("link", { name: /Unread/ });
     await expect(unread.getByRole("progressbar")).toHaveCount(0);
     await expect(unread).toHaveAccessibleName("Unread by A. Writer");
@@ -146,11 +166,68 @@ test.describe("library layout", () => {
   });
 
   test("book links retain their full accessible names", async ({ page }) => {
-    const links = page.getByRole("list", { name: "Library" }).getByRole("link");
+    const links = page
+      .getByRole("list", { name: "All books" })
+      .getByRole("link");
     await expect(links.nth(2)).toHaveAccessibleName("37% Book 3 by A. Writer");
     await expect(links.nth(1)).toHaveAccessibleName(
       "山と海の物語 by A. Writer",
     );
+  });
+
+  for (const progress of [23, undefined]) {
+    test(`continue reading shows saved time with progress ${progress}`, async ({
+      page,
+    }) => {
+      const now = Date.UTC(2026, 10, 17, 12);
+      await page.clock.setFixedTime(now);
+      await page.route("**/api/books", (route) =>
+        route.fulfill({
+          json: [{ ...books[0], progress, savedAt: now - 172_800_000 }],
+        }),
+      );
+      await page.reload();
+      await expect(
+        page
+          .getByRole("region", { name: "Continue reading" })
+          .getByText(
+            progress === undefined ? "2 days ago" : "23% · 2 days ago",
+            { exact: true },
+          ),
+      ).toBeVisible();
+    });
+  }
+
+  test("continue reading wraps its content and features a cover at least as wide as grid covers", async ({
+    page,
+  }) => {
+    await page.route("**/api/books", (route) =>
+      route.fulfill({
+        json: books.map((book, i) => ({
+          ...book,
+          savedAt: i === 0 ? 1000 : undefined,
+        })),
+      }),
+    );
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.reload();
+    const card = page.getByRole("region", { name: "Continue reading" });
+    await expect(card).toBeVisible();
+    const cardBox = await card.boundingBox();
+    const gridBox = await page
+      .getByRole("list", { name: "All books" })
+      .boundingBox();
+    if (!cardBox || !gridBox) throw new Error("Library boxes missing");
+    expect(cardBox.width).toBeLessThan(gridBox.width);
+    expect(cardBox.width).toBeLessThanOrEqual(576);
+    const cover = await card.locator("img").boundingBox();
+    const gridCover = await page
+      .getByRole("list", { name: "All books" })
+      .locator("img")
+      .first()
+      .boundingBox();
+    if (!cover || !gridCover) throw new Error("Cover boxes missing");
+    expect(cover.width).toBeGreaterThanOrEqual(gridCover.width);
   });
 
   for (const width of [390, 1280, 2000]) {
@@ -159,7 +236,7 @@ test.describe("library layout", () => {
     }) => {
       await page.setViewportSize({ width, height: 900 });
       const link = page
-        .getByRole("list", { name: "Library" })
+        .getByRole("list", { name: "All books" })
         .getByRole("link")
         .first();
       const title = link.getByText(longTitle, { exact: true });
@@ -242,13 +319,13 @@ test.describe("library layout", () => {
       ),
     ).toBe(true);
     const first = await page
-      .getByRole("list", { name: "Library" })
+      .getByRole("list", { name: "All books" })
       .getByRole("listitem")
       .first()
       .boundingBox();
     expect(first?.y).toBeLessThan(844);
     await expect(
-      page.getByRole("list", { name: "Library" }).getByRole("listitem"),
+      page.getByRole("list", { name: "All books" }).getByRole("listitem"),
     ).toHaveCount(12);
   });
 });
@@ -285,7 +362,7 @@ readingTest(
         );
       await expect(page.getByRole("status")).toContainText("Imported");
     }
-    const grid = page.getByRole("list", { name: "Library" });
+    const grid = page.getByRole("list", { name: "All books" });
     await expect(grid.getByRole("listitem")).toHaveCount(2);
     await expect(card).toHaveCount(0);
     for (const title of [

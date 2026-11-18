@@ -123,7 +123,7 @@ test("turning a spread saves a debounced position and the library resumes there"
   await setUp(page, "pages");
   await importChapters(page);
   const gridCard = page
-    .getByRole("list", { name: "Library" })
+    .getByRole("list", { name: "All books" })
     .getByRole("link", { name: new RegExp(chapters) });
   await expect(gridCard.getByRole("progressbar")).toHaveCount(0);
   await expect(gridCard).not.toHaveAccessibleName(/%/);

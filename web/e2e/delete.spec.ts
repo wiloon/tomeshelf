@@ -25,7 +25,7 @@ const title = "The Time Machine";
 
 function entry(page: Page, bookTitle = title): Locator {
   return page
-    .getByRole("list", { name: "Library" })
+    .getByRole("list", { name: "All books" })
     .getByRole("listitem")
     .filter({ hasText: bookTitle });
 }
@@ -174,7 +174,7 @@ test("a book imported after another was deleted never shows the deleted book's t
   const b = { file: "reader.epub", title: "A Hand-Made Reading Book" };
   const item = (t: string) =>
     page
-      .getByRole("list", { name: "Library" })
+      .getByRole("list", { name: "All books" })
       .getByRole("listitem")
       .filter({ hasText: t });
   const importFile = async (book: { file: string; title: string }) => {
