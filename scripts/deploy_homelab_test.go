@@ -169,6 +169,12 @@ func TestDeployHomelab(t *testing.T) {
 		f.start(manifest(""), true)
 		f.run(f.newer, "", "failed (image line missing)", manifest(""), nil, 0)
 	})
+	t.Run("rejects multiple image lines", func(t *testing.T) {
+		f := newDeploymentFixture(t)
+		two := manifest("v0.3.0") + "        image: ghcr.io/wiloon/tomeshelf:v0.2.0\n"
+		f.start(two, false)
+		f.run(f.newer, "", "failed (multiple image lines)", two, nil, 0)
+	})
 	t.Run("already selected links last manifest change", func(t *testing.T) {
 		f := newDeploymentFixture(t)
 		current := manifest("main-" + f.newer[:7])
