@@ -33,7 +33,7 @@ kubectl apply -f deploy/kubernetes.yaml
 
 Keep these settings when you adapt it:
 
-- `replicas: 1` and `strategy: Recreate`. SQLite allows one writer, so the old pod must stop before the new one starts. Never scale tomeshelf beyond one replica.
+- `replicas: 1` and `strategy: Recreate`. SQLite allows one writer, so the old pod must stop before the new one starts. Never scale Tomeshelf beyond one replica.
 - `securityContext.fsGroup: 65532`, so the non-root user can write to a fresh volume.
 - The probes: `GET /healthz` for liveness and `GET /readyz` for readiness, on the port `TOMESHELF_ADDR` listens on.
 
