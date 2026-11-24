@@ -31,6 +31,7 @@ Watch the page (for example with a `MutationObserver`) to notice a move.
 A reader can show a document as one scroll or as pages (ADR-0010). In the pages layout the article itself scrolls horizontally, one spread of one or two pages at a time, and the window does not scroll. Text on other pages is in the DOM but outside the article's visible box.
 
 - To bring an element into view, call `element.scrollIntoView()`. It works in both layouts; tomeshelf then aligns the article to the spread holding it.
+- The article may contain one empty `<span data-tomeshelf-page-start>`, placed where the visible spread starts, and the text node at that point may be split in two. They move whenever the reader turns a spread. The element holds no text and is not a block, so `textContent` and block numbers are unchanged; don't keep references to text nodes across turns.
 - To tell whether text is visible, compare its box with the article's box (`getBoundingClientRect()`), not with the window.
 
 The layout is not part of the contract: do not depend on the article's CSS.

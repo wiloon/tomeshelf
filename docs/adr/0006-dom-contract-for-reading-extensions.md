@@ -21,9 +21,11 @@ The contract is documented for extension authors and pinned by Playwright contra
 ## Consequences
 
 - ENX needs a small change: a platform rule matching the generator, the book key read from `tomeshelf:book`, and its resume hint suppressed when `tomeshelf:restores-position` is present. This is tracked in wiloon/enx#907 and is to be specified once tomeshelf is stable.
+- In the pages layout the article may hold one empty `<span data-tomeshelf-page-start>`, and a text node may be split where a spread starts and merged again when the spread start moves (ADR-0010). Neither is part of the contract: the element holds no text and is not a block, and the article's `textContent` and block numbers stay the same. An extension should locate text by block and offset or by quote, not by keeping text nodes across spread turns.
 - A later version may listen for a DOM event that ENX dispatches with the sentence it looked up, and store that as the reading position (ADR-0005). That event would be added to this contract when it is designed.
 
 ## Revisions
 
 - 2026-11-14, issue #7: defined which elements are blocks and how they are numbered, since the numbers are a public selector. The `tomeshelf:restores-position` tag now ships with position restoration, so a reading page never promises what it does not yet do.
 - 2026-11-17, ADR-0015: the book id is an opaque string that never names a different book. Its value changes from an integer to the original's SHA-256, so an extension's data keyed by an old integer id no longer matches.
+- 2026-11-23, ADR-0010 (issue #138): noted the pages layout's empty spread-start marker and split text nodes, which are outside the contract, so extension authors don't depend on text node identity.

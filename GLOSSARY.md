@@ -48,6 +48,14 @@ _Avoid_: Screen, column; never a synonym for document
 The one or two pages shown at the same time.
 _Avoid_: Screen, view, two-page view
 
+**Spread start**:
+The first line of a spread's first page, a line of text or a block such as a picture; it stays first when the window or a reading setting changes.
+_Avoid_: Anchor (ADR-0005's anchored character is one character), top line
+
+**Repeated lines**:
+The last lines of one spread that a turn shows again at the start of the next.
+_Avoid_: Overlap, carry-over
+
 **Table of contents entry**:
 A named point in a book that the user can jump to; it points into a document, not necessarily at its start.
 _Avoid_: Chapter link
