@@ -848,7 +848,7 @@ for (const { width, edge } of [
         edge === "left"
           ? lines.find((rect) => rect.left < box.left + 40)
           : lines.reduce<DOMRect | undefined>(
-              (best, rect) => (!best || rect.left > best.left ? rect : best),
+              (best, rect) => (!best || rect.right > best.right ? rect : best),
               undefined,
             );
       if (!pick) {
@@ -856,7 +856,9 @@ for (const { width, edge } of [
       }
       return {
         y: pick.top + pick.height / 2,
-        from: edge === "left" ? pick.right - 2 : pick.left + 2,
+        // Start well inside the line, not at a glyph boundary that font
+        // metrics can move.
+        from: pick.left + pick.width * (edge === "left" ? 0.75 : 0.25),
         to: edge === "left" ? pick.left + 4 : pick.right - 4,
         out: edge === "left" ? box.left - 8 : box.right + 8,
       };
@@ -888,9 +890,11 @@ for (const { width, edge } of [
       );
       return {
         text: sel.toString().trim(),
-        onSpread: rects.every(
-          (rect) => rect.left >= box.left - 1 && rect.right <= box.right + 1,
-        ),
+        onSpread:
+          rects.length > 0 &&
+          rects.every(
+            (rect) => rect.left >= box.left - 1 && rect.right <= box.right + 1,
+          ),
       };
     });
     expect(selection?.text.length).toBeGreaterThan(0);
