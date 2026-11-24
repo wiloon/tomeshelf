@@ -31,19 +31,6 @@ export function spreadMetrics(
   return { pageWidth, pagesPerSpread, spreadWidth: pageWidth, gap };
 }
 
-// One spread's scroll pitch: each page is followed by a column gap in the
-// multicol flow, including after the last page of the spread.
-export function spreadStep(metrics: SpreadMetrics): number {
-  return metrics.pagesPerSpread * (metrics.pageWidth + metrics.gap);
-}
-
-export function snapSpreadOffset(scrollLeft: number, step: number): number {
-  if (step <= 0) {
-    return 0;
-  }
-  return Math.floor((scrollLeft + 1) / step) * step;
-}
-
 export type Turn = "next" | "previous";
 
 export function keyTurnsSpread(event: {

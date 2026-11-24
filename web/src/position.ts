@@ -466,16 +466,3 @@ export function applyResolvedPosition(
     behavior: "instant",
   });
 }
-
-export function restoreLocator(
-  content: HTMLElement,
-  locator: Locator,
-  layout: Layout,
-  pages?: PagesRestore,
-): ResolvedPosition | null {
-  const resolved = resolveLocator(content, locator, layout, pages);
-  if (resolved) {
-    applyResolvedPosition(content, resolved, layout, pages);
-  }
-  return resolved;
-}

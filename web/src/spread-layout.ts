@@ -45,8 +45,6 @@ function isBlockLevel(el: Element): boolean {
   return !display.startsWith("inline") && display !== "contents";
 }
 
-export type SpreadLayout = ReturnType<typeof createSpreadLayout>;
-
 export function createSpreadLayout(
   article: HTMLElement,
   geometry: () => { colStep: number; pagesPerSpread: number },
