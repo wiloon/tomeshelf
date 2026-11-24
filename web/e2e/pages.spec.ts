@@ -2003,8 +2003,57 @@ test("progression is 1 on the spread ending with the document's last line, and a
   expect(res.status()).toBe(204);
   await page.goto(`/books/${id}/read`);
   await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
-  await expect.poll(async () => (await firstLineAtTopLeft(page)).left).toBe(0);
+  // The spread starts with a line at the top of its first page. The line may
+  // be indented (a picture, a list item), so its left edge is anywhere in
+  // the first page.
+  await expect
+    .poll(async () => (await spreadLines(page))[0]?.text ?? "")
+    .not.toBe("");
+  const first = (await spreadLines(page))[0];
+  const box = await article(page).boundingBox();
+  const pageWidth = await article(page).evaluate((el) =>
+    Number.parseFloat(
+      getComputedStyle(el).getPropertyValue("--reading-page-width"),
+    ),
+  );
+  expect(first.top - (box?.y ?? 0)).toBeGreaterThanOrEqual(-1);
+  expect(first.top - (box?.y ?? 0)).toBeLessThan(24);
+  expect(first.left - (box?.x ?? 0)).toBeGreaterThanOrEqual(0);
+  expect(first.left - (box?.x ?? 0)).toBeLessThan(pageWidth);
   const left = await article(page).evaluate((el) => el.scrollLeft);
   expect(left).toBeGreaterThan(0);
   expect(left % 632).toBe(0);
+});
+
+// Blank space after the last line (here an empty block) can overflow into
+// a column with no line; the spread before it is still the last one.
+test("blank space after the last line gives no extra spread and progression stays 1", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page);
+  await page.goto(`/books/${id}/read/3`);
+  await expect(article(page)).toContainText("After the Spreads");
+  await page.keyboard.press("ArrowLeft");
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  await expect(article(page)).toContainText("A Later Heading");
+  await article(page).evaluate((el) => {
+    const blank = document.createElement("div");
+    blank.style.height = "250vh";
+    el.append(blank);
+    window.dispatchEvent(new Event("resize"));
+  });
+  await page.waitForTimeout(200);
+  await turnAndSettle(page, "ArrowLeft");
+  const saved = page.waitForRequest(
+    (req) =>
+      req.method() === "PUT" && req.url().endsWith(`/books/${id}/position`),
+  );
+  await turnAndSettle(page, "ArrowRight");
+  const body = (await saved).postDataJSON() as {
+    locations: { progression: number };
+  };
+  expect(body.locations.progression).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/3$`));
 });

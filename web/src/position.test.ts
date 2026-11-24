@@ -489,24 +489,13 @@ test("an invalid or non-block selector counts as a missing block", () => {
   }
 });
 
-test("in the pages layout a repeated quote is tied by spread progression", () => {
+test("in the pages layout a repeated quote is tied by where restoring it would scroll", () => {
   const content = article(`<p id="a">Echo line.</p><p id="b">Echo line.</p>`);
-  Object.defineProperty(content, "scrollWidth", {
-    value: 2000,
-    configurable: true,
-  });
-  Object.defineProperty(content, "clientWidth", {
-    value: 1000,
-    configurable: true,
-  });
-  content.getBoundingClientRect = () =>
-    DOMRect.fromRect({ x: 0, y: 0, width: 1000, height: 600 });
-  previousRangeBox = rangeProto.getBoundingClientRect;
-  rangeProto.getBoundingClientRect = function (this: Range) {
-    const left = this.startContainer.parentElement?.id === "b" ? 1200 : 100;
-    return DOMRect.fromRect({ x: left, y: 0, width: 10, height: 10 });
-  };
   const prepareProgression = vi.fn();
+  // Without a marker both sit near 0.5; showing each one gives 0.5 for a
+  // and 0.9 for b.
+  const progressionOf = (node: Text) =>
+    node.parentElement?.id === "b" ? 0.9 : 0.5;
   const resolved = resolveLocator(
     content,
     {
@@ -515,7 +504,13 @@ test("in the pages layout a repeated quote is tied by spread progression", () =>
       text: { before: "", highlight: "Echo line.", after: "" },
     },
     "pages",
-    { prepareProgression, showCharacter: vi.fn(), showProgression: vi.fn() },
+    {
+      progression: () => 0,
+      progressionOf,
+      prepareProgression,
+      showCharacter: vi.fn(),
+      showProgression: vi.fn(),
+    },
   );
   expect(prepareProgression).toHaveBeenCalled();
   expect(resolved?.kind).toBe("character");

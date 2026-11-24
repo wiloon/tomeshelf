@@ -60,7 +60,14 @@ export function useReadingPosition({
     }
     // In the pages layout the controller has already placed the spread
     // start's marker and set the scroll end (ADR-0005).
-    return captureLocator(content, hrefRef.current, layoutRef.current);
+    const pages =
+      layoutRef.current === "pages" ? pagesRestoreRef.current() : null;
+    return captureLocator(
+      content,
+      hrefRef.current,
+      layoutRef.current,
+      pages?.progression(),
+    );
   }, []);
 
   const schedule = useCallback(

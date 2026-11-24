@@ -31,6 +31,12 @@ export type PagesController = {
   // Removes the marker, so restoring measures progressions on the document
   // without one (ADR-0005).
   prepareProgression: () => void;
+  // The shown spread's progression (ADR-0005): 1 when no line follows it,
+  // whatever blank margin overflows past it.
+  progression: () => number;
+  // The progression showing the character would give: its line is placed as
+  // the spread start and measured, then the marker is removed again.
+  progressionOf: (node: Text, offset: number) => number;
   // Makes the line holding the character the spread start.
   showCharacter: (node: Text, offset: number) => void;
   // Makes the first line of the page at that progression the spread start.
@@ -231,6 +237,15 @@ export function attachPagesController(
   const atEnd = () => {
     ensureMeasured();
     return layout.after() === null;
+  };
+  const progression = () => {
+    if (atEnd()) {
+      return 1;
+    }
+    const range = article.scrollWidth - article.clientWidth;
+    return range <= 0
+      ? 1
+      : Math.min(1, Math.max(0, article.scrollLeft / range));
   };
 
   // The earliest spread start before the current one whose spread reaches
@@ -577,6 +592,17 @@ export function attachPagesController(
       ensureMeasured();
       layout.removeMarker();
       layout.clearScrollEnd();
+    },
+    progression,
+    progressionOf: (node, offset) => {
+      ensureMeasured();
+      const kept = current;
+      show(toStart(lineHolding(node, offset)));
+      const p = progression();
+      current = kept;
+      layout.removeMarker();
+      layout.clearScrollEnd();
+      return p;
     },
     showCharacter: (node, offset) => {
       ensureMeasured();

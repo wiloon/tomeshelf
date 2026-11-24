@@ -1629,3 +1629,40 @@ for (const outcome of ["success", "failure", "newer after failure"] as const) {
     if (outcome !== "failure") await signInAndResume(page, moved);
   });
 }
+
+// chapters.epub repeats one sentence within a paragraph, so the quote is
+// resolved by progression. The marker pushes the spread start's line into
+// the next column, so each occurrence is measured where restoring it would
+// scroll (ADR-0005 Quote), not where it sits without a marker.
+test("a repeated quote resumes at the spread start Next showed", async ({
+  page,
+}) => {
+  await setUp(page);
+  await importChapters(page);
+  const id = await openFromLibrary(page);
+  for (const [font, fontSize, width] of [
+    ["default", 16, 1280],
+    ["default", 20, 1180],
+    ["charter", 20, 1080],
+  ] as const) {
+    await saveSettings(page, { font, fontSize });
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`/books/${id}/read/1`);
+    await expect(article(page)).toContainText("CHAPTER I.");
+    const puts = positionPuts(page);
+    await page
+      .getByRole("navigation", { name: "Reading order" })
+      .getByRole("button", { name: "Next" })
+      .click();
+    await expect.poll(() => puts.length).toBeGreaterThan(0);
+    const moved = await article(page).evaluate((el) => el.scrollLeft);
+    expect(moved, `${font} ${fontSize} ${width}`).toBeGreaterThan(0);
+    await page.goto(`/books/${id}/read`);
+    await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+    await expect
+      .poll(() => article(page).evaluate((el) => el.scrollLeft), {
+        message: `${font} ${fontSize} ${width}`,
+      })
+      .toBe(moved);
+  }
+});

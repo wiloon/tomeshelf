@@ -596,6 +596,8 @@ export function ReaderPage() {
       return null;
     }
     return {
+      progression: () => controller.progression(),
+      progressionOf: (node, offset) => controller.progressionOf(node, offset),
       prepareProgression: () => controller.prepareProgression(),
       showCharacter: (node, offset) => controller.showCharacter(node, offset),
       showProgression: (progression) => controller.showProgression(progression),
