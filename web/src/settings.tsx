@@ -257,7 +257,6 @@ export function applyToPage(settings: ReadingSettings) {
   root.dataset.readingTheme = settings.theme;
   root.dataset.readingLayout = settings.layout;
   root.dataset.readingFont = settings.font;
-  root.dataset.wheelTurnsPages = String(settings.wheelTurnsPages);
 }
 
 // Takes the settings off the root element, so other pages look as before.
@@ -274,7 +273,6 @@ export function clearFromPage() {
   delete root.dataset.readingTheme;
   delete root.dataset.readingLayout;
   delete root.dataset.readingFont;
-  delete root.dataset.wheelTurnsPages;
 }
 
 function Stepper({
