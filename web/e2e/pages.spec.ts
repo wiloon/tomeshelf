@@ -25,6 +25,7 @@ const defaults: {
   theme: "light" | "dark" | "sepia";
   layout: "pages" | "scroll";
   wheelTurnsPages: boolean;
+  repeatedLines: number;
   font: "default" | "literata" | "charter" | "source-serif-4";
 } = {
   fontSize: 18,
@@ -34,6 +35,7 @@ const defaults: {
   layout: "pages",
   font: "default",
   wheelTurnsPages: true,
+  repeatedLines: 1,
 };
 
 async function saveSettings(

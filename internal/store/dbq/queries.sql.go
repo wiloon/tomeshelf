@@ -169,7 +169,7 @@ func (q *Queries) GetReadingPosition(ctx context.Context, arg GetReadingPosition
 }
 
 const getReadingSettings = `-- name: GetReadingSettings :one
-SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout, reading_settings.font, reading_settings.wheel_turns_pages
+SELECT reading_settings.font_size, reading_settings.line_height, reading_settings.width, reading_settings.theme, reading_settings.layout, reading_settings.font, reading_settings.wheel_turns_pages, reading_settings.repeated_lines
 FROM reading_settings JOIN users ON users.id = reading_settings.user_id
 WHERE users.username = ?
 `
@@ -182,6 +182,7 @@ type GetReadingSettingsRow struct {
 	Layout          string
 	Font            string
 	WheelTurnsPages bool
+	RepeatedLines   int64
 }
 
 func (q *Queries) GetReadingSettings(ctx context.Context, username string) (GetReadingSettingsRow, error) {
@@ -195,6 +196,7 @@ func (q *Queries) GetReadingSettings(ctx context.Context, username string) (GetR
 		&i.Layout,
 		&i.Font,
 		&i.WheelTurnsPages,
+		&i.RepeatedLines,
 	)
 	return i, err
 }
@@ -428,9 +430,9 @@ func (q *Queries) ListBooksWithProgress(ctx context.Context, username string) ([
 }
 
 const putReadingSettings = `-- name: PutReadingSettings :execrows
-INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout, font, wheel_turns_pages)
-SELECT id, ?1, ?2, ?3, ?4, ?5, ?6, ?7
-FROM users WHERE username = ?8
+INSERT INTO reading_settings (user_id, font_size, line_height, width, theme, layout, font, wheel_turns_pages, repeated_lines)
+SELECT id, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8
+FROM users WHERE username = ?9
 ON CONFLICT (user_id) DO UPDATE SET
     font_size = excluded.font_size,
     line_height = excluded.line_height,
@@ -438,7 +440,8 @@ ON CONFLICT (user_id) DO UPDATE SET
     theme = excluded.theme,
     layout = excluded.layout,
     font = excluded.font,
-    wheel_turns_pages = excluded.wheel_turns_pages
+    wheel_turns_pages = excluded.wheel_turns_pages,
+    repeated_lines = excluded.repeated_lines
 `
 
 type PutReadingSettingsParams struct {
@@ -449,6 +452,7 @@ type PutReadingSettingsParams struct {
 	Layout          string
 	Font            string
 	WheelTurnsPages bool
+	RepeatedLines   int64
 	Username        string
 }
 
@@ -461,6 +465,7 @@ func (q *Queries) PutReadingSettings(ctx context.Context, arg PutReadingSettings
 		arg.Layout,
 		arg.Font,
 		arg.WheelTurnsPages,
+		arg.RepeatedLines,
 		arg.Username,
 	)
 	if err != nil {

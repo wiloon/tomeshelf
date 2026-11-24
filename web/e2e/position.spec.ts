@@ -32,6 +32,7 @@ const defaults = {
   layout: "pages" as const,
   font: "default" as const,
   wheelTurnsPages: true,
+  repeatedLines: 1,
 };
 
 async function saveSettings(

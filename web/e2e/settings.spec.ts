@@ -50,6 +50,7 @@ async function saveScrollLayout(page: Page) {
       layout: "scroll",
       font: "default",
       wheelTurnsPages: true,
+      repeatedLines: 1,
     },
   });
   expect(res.status()).toBe(204);
@@ -643,6 +644,31 @@ test("the settings panel fits and works by click and keyboard at phone and deskt
     await page.keyboard.press("Space");
     await expect(wheel, at).toBeChecked();
 
+    // Repeated lines belongs to the pages layout only (ADR-0010).
+    const repeated = panel.getByRole("status", { name: "Repeated lines" });
+    await expect(repeated, at).toHaveCount(0);
+    await panel.getByRole("radio", { name: "Pages" }).check();
+    await expect(repeated, at).toHaveText("1");
+    await panel
+      .getByRole("button", { name: "Increase repeated lines" })
+      .focus();
+    await page.keyboard.press("Enter");
+    await expect(repeated, at).toHaveText("2");
+    const fewer = panel.getByRole("button", {
+      name: "Decrease repeated lines",
+    });
+    await fewer.focus();
+    for (const want of ["1", "0"]) {
+      await page.keyboard.press("Enter");
+      await expect(repeated, at).toHaveText(want);
+    }
+    await expect(fewer, at).toBeDisabled();
+    await panel
+      .getByRole("button", { name: "Increase repeated lines" })
+      .click();
+    await panel.getByRole("radio", { name: "Scroll" }).check();
+    await expect(repeated, at).toHaveCount(0);
+
     await page.keyboard.press("Escape");
     await expect(panel, at).toBeHidden();
     await openSettings(page);
@@ -706,6 +732,7 @@ type Settings = {
   layout: string;
   font: string;
   wheelTurnsPages: boolean;
+  repeatedLines: number;
 };
 
 const defaults: Settings = {
@@ -716,6 +743,7 @@ const defaults: Settings = {
   layout: "pages",
   font: "default",
   wheelTurnsPages: true,
+  repeatedLines: 1,
 };
 
 async function saved(api: APIRequestContext): Promise<Settings> {
@@ -891,6 +919,46 @@ test("a change survives a reload and opens on another device, while another user
     }),
   ).toBeChecked();
   await other.close();
+});
+
+test("Repeated lines shows only in the pages layout, survives a reload and opens on another device", async ({
+  page,
+  browser,
+  server,
+}) => {
+  const id = await importSemantics(page);
+  await openDocument(page, id, documents.common);
+  const panel = await openSettings(page);
+  const repeated = panel.getByRole("status", { name: "Repeated lines" });
+  await expect(repeated).toHaveCount(0);
+  await panel.getByRole("radio", { name: "Pages" }).check();
+  const more = panel.getByRole("button", { name: "Increase repeated lines" });
+  await more.click();
+  await more.click();
+  await expect(repeated).toHaveText("3");
+  await expect(more).toBeDisabled();
+  await expect
+    .poll(() => saved(page.request))
+    .toEqual({ ...defaults, repeatedLines: 3 });
+
+  await page.reload();
+  await expect(article(page)).toContainText(documents.common.text);
+  await expect(
+    (await openSettings(page)).getByRole("status", { name: "Repeated lines" }),
+  ).toHaveText("3");
+
+  const device = await browser.newContext({
+    baseURL: server.url,
+    storageState: await page.context().storageState(),
+  });
+  const second = await device.newPage();
+  await openDocument(second, id, documents.common);
+  await expect(
+    (await openSettings(second)).getByRole("status", {
+      name: "Repeated lines",
+    }),
+  ).toHaveText("3");
+  await device.close();
 });
 
 test("a change made just before moving within the app, or before closing the page, is stored", async ({
