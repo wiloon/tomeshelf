@@ -242,14 +242,15 @@
   text-align: start;
   text-indent: 0;
 
-  /* A line that wraps hangs 1em under its first line. */
-  & > span {
+  /* A line that wraps hangs 1em under its first line. The spread-start
+     marker is not a poem line (ADR-0010). */
+  & > span:not([data-tomeshelf-page-start]) {
     display: block;
     padding-inline-start: 1em;
     text-indent: -1em;
   }
 
-  & > span + br {
+  & > span:not([data-tomeshelf-page-start]) + br {
     display: none;
   }
 
@@ -370,6 +371,29 @@
 
 :root[data-reading-layout="pages"] #tomeshelf-content * {
   overscroll-behavior-x: contain;
+}
+
+/* The spread-start marker begins a column at the spread start, and the block
+   after it loses the margin above it, as at any page top (ADR-0010). */
+:root[data-reading-layout="pages"]
+  #tomeshelf-content
+  [data-tomeshelf-page-start] {
+  display: block;
+  break-before: column;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  text-indent: 0;
+}
+
+:root[data-reading-layout="pages"]
+  #tomeshelf-content
+  :is(
+    [data-tomeshelf-page-start] + *,
+    [data-tomeshelf-page-start] + * > :first-child,
+    [data-tomeshelf-page-start] + * > :first-child > :first-child
+  ) {
+  margin-block-start: 0;
 }
 
 :root[data-reading-layout="pages"] #tomeshelf-content::after {

@@ -67,9 +67,12 @@ describe("Next (ADR-0010 Repeated lines)", () => {
     [1, line(9)],
     [2, line(8)],
     [3, line(7)],
-  ])("with N = %i the line N lines before the spread's end starts the next spread", (n, want) => {
-    expect(nextSpreadStart(visible, after, n)).toEqual(want);
-  });
+  ])(
+    "with N = %i the line N lines before the spread's end starts the next spread",
+    (n, want) => {
+      expect(nextSpreadStart(visible, after, n)).toEqual(want);
+    },
+  );
 
   test("with N = 0 the line after the spread starts the next spread", () => {
     expect(nextSpreadStart(visible, after, 0)).toEqual(after);
@@ -96,9 +99,12 @@ describe("Previous target (ADR-0010 Repeated lines)", () => {
     [1, line(20)],
     [2, line(21)],
     [3, line(22)],
-  ])("with N = %i the previous spread ends with the current spread's N-th line", (n, want) => {
-    expect(previousTarget(visible, line(19), n)).toEqual(want);
-  });
+  ])(
+    "with N = %i the previous spread ends with the current spread's N-th line",
+    (n, want) => {
+      expect(previousTarget(visible, line(19), n)).toEqual(want);
+    },
+  );
 
   test("with N = 0 it ends with the line before the spread", () => {
     expect(previousTarget(visible, line(19), 0)).toEqual(line(19));

@@ -64,9 +64,8 @@ export function useReadingPosition({
     if (!content) {
       return null;
     }
-    if (layoutRef.current === "pages") {
-      pagesRestoreRef.current()?.prepareProgression();
-    }
+    // In the pages layout the controller has already placed the spread
+    // start's marker and set the scroll end (ADR-0005).
     return captureLocator(content, hrefRef.current, layoutRef.current);
   }, []);
 

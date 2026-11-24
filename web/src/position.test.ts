@@ -1,6 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { renderDocument } from "./navigator";
-import { attachPagesController } from "./pages-controller";
 import {
   captureLocator,
   documentProgression,
@@ -439,43 +438,6 @@ test("a viewport with no visible text stores progressions alone", () => {
   expect(captured.locations.cssSelector).toBeUndefined();
   expect(captured.text).toBeUndefined();
   expect(captured.locations.progression).toBe(progression);
-});
-
-test("pages progression uses the extended final spread for capture and restore", () => {
-  const content = article(`<p>Five pages.</p>`);
-  document.documentElement.style.fontSize = "16px";
-  Object.defineProperty(content, "clientWidth", { value: 624 });
-  // Model five 300px columns with 24px gaps; the CSS end marker extends
-  // the scrollable width when the controller prepares the final spread.
-  Object.defineProperty(content, "scrollWidth", {
-    get: () =>
-      Math.max(
-        1596,
-        Number.parseFloat(
-          content.style.getPropertyValue("--reading-scroll-end"),
-        ) + 1 || 0,
-      ),
-  });
-  const controller = attachPagesController({
-    article: content,
-    availableWidth: () => 1000,
-    textWidthRem: () => 18.75,
-    wheelTurnsPages: () => true,
-    onExhausted: () => {},
-  });
-  try {
-    content.scrollLeft = 648;
-    controller.prepareProgression();
-    expect(documentProgression(content, "pages")).toBe(0.5);
-    content.scrollLeft = 0;
-    controller.showProgression(0.5);
-    expect(content.scrollLeft).toBe(648);
-    expect(controller.turn("next")).toBe(true);
-    expect(documentProgression(content, "pages")).toBe(1);
-  } finally {
-    controller.destroy();
-    document.documentElement.style.removeProperty("font-size");
-  }
 });
 
 test("pages capture anchors on the first visible character in the spread", () => {

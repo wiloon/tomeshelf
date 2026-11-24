@@ -144,6 +144,8 @@ function BookDocument({
   textWidthRem.current = settings.width;
   const wheelTurnsPages = useRef(settings.wheelTurnsPages);
   wheelTurnsPages.current = settings.wheelTurnsPages;
+  const repeatedLines = useRef(settings.repeatedLines);
+  repeatedLines.current = settings.repeatedLines;
   const onExhaustedRef = useRef(onExhausted);
   onExhaustedRef.current = onExhausted;
   const onEdgesRef = useRef(onEdges);
@@ -196,6 +198,7 @@ function BookDocument({
       availableWidth: () => availableArticleWidth(article),
       textWidthRem: () => textWidthRem.current,
       wheelTurnsPages: () => wheelTurnsPages.current,
+      repeatedLines: () => repeatedLines.current,
       onExhausted: (direction) => onExhaustedRef.current(direction),
       onMove: () => onMoveRef.current(),
     });
@@ -210,13 +213,9 @@ function BookDocument({
           ? document.getElementById(decodeFragment(hash))
           : undefined;
         if (target) {
-          target.scrollIntoView();
-          controller.relayout();
+          controller.showElement(target);
         } else if (arrive === "end") {
-          article.scrollLeft = article.scrollWidth;
-          controller.relayout();
-        } else {
-          article.scrollLeft = 0;
+          controller.showEnd();
         }
       }
       markProgrammatic();
@@ -228,19 +227,17 @@ function BookDocument({
     noteArrival(kind);
 
     const onScroll = () => {
-      controller.capturePlace();
       onEdgesRef.current({
         start: controller.atStart(),
         end: controller.atEnd(),
       });
     };
-    controller.capturePlace();
     article.addEventListener("scroll", onScroll, { passive: true });
     const onResize = () => controller.relayout();
     window.addEventListener("resize", onResize);
-    // A late-loading face reflows the columns; keep the first visible
-    // character on the spread (ADR-0010 Re-layout).
-    const onFontsLoaded = () => controller.restorePlace();
+    // A late-loading face reflows the columns; keep the spread start
+    // (ADR-0010 Re-layout).
+    const onFontsLoaded = () => controller.relayout();
     document.fonts.addEventListener("loadingdone", onFontsLoaded);
 
     return () => {
@@ -433,6 +430,10 @@ function useSettingsOnPage(
     const previous = applied.current;
     applied.current = settings;
     if (settings.layout === "pages") {
+      if (previous && previous.repeatedLines !== settings.repeatedLines) {
+        // The turned spreads were chosen with the old count (ADR-0010).
+        pagesRef.current?.forget();
+      }
       if (pagesRef.current && previous && changesLayout(previous, settings)) {
         withoutCapture(() => {
           pagesRef.current?.relayout(() => applyToPage(settings));

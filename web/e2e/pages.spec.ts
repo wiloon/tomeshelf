@@ -505,12 +505,18 @@ test("wheel momentum does not turn a second spread across documents", async ({
   expect((await pagesGeometry(page))?.articleScrollLeft).toBe(0);
 });
 
+// The first visible character, kept as its offset into the article's text:
+// text nodes may be split and merged where a spread starts (ADR-0006).
 async function markFirstVisibleCharacter(page: Page) {
   await article(page).evaluate((el) => {
     const root = el.getBoundingClientRect();
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let node = walker.nextNode() as Text | null;
-    while (node) {
+    let offset = 0;
+    for (
+      let node = walker.nextNode() as Text | null;
+      node;
+      node = walker.nextNode() as Text | null
+    ) {
       for (let i = 0; i < node.length; i++) {
         const range = document.createRange();
         range.setStart(node, i);
@@ -523,11 +529,11 @@ async function markFirstVisibleCharacter(page: Page) {
           rect.bottom > root.top + 1 &&
           rect.top < root.bottom - 1
         ) {
-          Reflect.set(window, "testAnchor", range);
+          Reflect.set(window, "testAnchor", offset + i);
           return;
         }
       }
-      node = walker.nextNode() as Text | null;
+      offset += node.length;
     }
     throw new Error("No visible character");
   });
@@ -535,15 +541,29 @@ async function markFirstVisibleCharacter(page: Page) {
 
 async function firstVisibleCharacterOnSpread(page: Page) {
   return article(page).evaluate((el) => {
-    const range = Reflect.get(window, "testAnchor") as Range;
-    const a = el.getBoundingClientRect();
-    const b = range.getBoundingClientRect();
-    return (
-      b.right > a.left &&
-      b.left < a.right &&
-      b.bottom > a.top &&
-      b.top < a.bottom
-    );
+    let left = Reflect.get(window, "testAnchor") as number;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (
+      let node = walker.nextNode() as Text | null;
+      node;
+      node = walker.nextNode() as Text | null
+    ) {
+      if (left < node.length) {
+        const range = document.createRange();
+        range.setStart(node, left);
+        range.setEnd(node, left + 1);
+        const a = el.getBoundingClientRect();
+        const b = range.getBoundingClientRect();
+        return (
+          b.right > a.left &&
+          b.left < a.right &&
+          b.bottom > a.top &&
+          b.top < a.bottom
+        );
+      }
+      left -= node.length;
+    }
+    return false;
   });
 }
 
@@ -1354,3 +1374,143 @@ test("scroll layout ignores disabled wheel", async ({ page }) => {
     .poll(() => page.evaluate(() => window.scrollY))
     .toBeGreaterThan(0);
 });
+
+// Spread starts and repeated lines (ADR-0010, issue #138), on a hand-made
+// book whose second document holds paragraphs, headings, a list, a poem, a
+// table and pictures.
+const spreadTitle = "A Hand-Made Book of Spread Starts";
+
+async function openSpreadBook(
+  page: Page,
+  settings: Partial<typeof defaults> = {},
+): Promise<string> {
+  const setup = await page.request.post("/api/setup", {
+    data: { username: "reader", password: "reader password" },
+  });
+  expect(setup.status()).toBe(201);
+  await saveSettings(page, settings);
+  await page.goto("/");
+  await page
+    .getByLabel("Import an EPUB")
+    .setInputFiles(path.join(books, "spread-start.epub"));
+  await expect(page.getByRole("status")).toHaveText(`Imported ${spreadTitle}.`);
+  await page.getByRole("link", { name: new RegExp(spreadTitle) }).click();
+  await expect(page).toHaveURL(/\/books\/[^/]+\/read\/1$/);
+  return new URL(page.url()).pathname.split("/")[2];
+}
+
+async function openSpreads(page: Page, id: string, hash = "") {
+  await page.goto(`/books/${id}/read/2${hash}`);
+  await expect(article(page)).toContainText("Spread Starts");
+}
+
+type SeenLine = { text: string; left: number; top: number };
+
+// The lines of text wholly inside the article's box, in document order. A
+// line is a run of characters with the same top. A block that cannot split
+// (a picture, a table, pre) is one line, when it is visible (ADR-0010): its
+// text, or [img] for a picture.
+async function spreadLines(page: Page): Promise<SeenLine[]> {
+  return article(page).evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const inside = (r: DOMRect) =>
+      r.width > 0 &&
+      r.left >= box.left - 1 &&
+      r.right <= box.right + 1 &&
+      r.top >= box.top - 1 &&
+      r.bottom <= box.bottom + 1;
+    const meets = (r: DOMRect) =>
+      r.width > 0 &&
+      r.right > box.left + 1 &&
+      r.left < box.right - 1 &&
+      r.bottom > box.top + 1 &&
+      r.top < box.bottom - 1;
+    const out: { text: string; left: number; top: number }[] = [];
+    let last: DOMRect | null = null;
+    const range = document.createRange();
+    const visit = (n: Node) => {
+      if (
+        n instanceof Element &&
+        /^(IMG|TABLE|PRE|HR|VIDEO|svg)$/.test(n.tagName)
+      ) {
+        const r = n.getBoundingClientRect();
+        if (meets(r)) {
+          const text = n.textContent?.trim() || `[${n.tagName.toLowerCase()}]`;
+          out.push({ text, left: r.left, top: r.top });
+        }
+        last = null;
+        return;
+      }
+      if (n instanceof Text) {
+        for (let i = 0; i < n.length; i++) {
+          range.setStart(n, i);
+          range.setEnd(n, i + 1);
+          const r = range.getClientRects()[0];
+          if (!r || !inside(r)) {
+            continue;
+          }
+          const ch = n.data[i];
+          if (!last || Math.abs(r.top - last.top) > 2) {
+            if (/\s/.test(ch)) {
+              continue;
+            }
+            out.push({ text: ch, left: r.left, top: r.top });
+          } else {
+            out[out.length - 1].text += ch;
+          }
+          last = r;
+        }
+        return;
+      }
+      for (let c = n.firstChild; c; c = c.nextSibling) {
+        visit(c);
+      }
+    };
+    visit(el);
+    return out.map((l) => ({ ...l, text: l.text.replace(/\s+/g, " ").trim() }));
+  });
+}
+
+// The article's text with all whitespace removed, to check that two lines
+// follow each other with nothing between them.
+async function squashedText(page: Page): Promise<string> {
+  return article(page).evaluate(
+    (el) => el.textContent?.replace(/\s+/g, "") ?? "",
+  );
+}
+
+const squash = (s: string) => s.replace(/\s+|\[img\]/g, "");
+
+for (const [width, pages] of [
+  [1280, "two pages"],
+  [390, "one page"],
+] as const) {
+  for (const n of [2, 0]) {
+    test(`Next repeats exactly ${n} lines at ${width} px (${pages})`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 800 });
+      const id = await openSpreadBook(page, { repeatedLines: n });
+      await openSpreads(page, id);
+      const text = await squashedText(page);
+      for (let turn = 1; turn <= 3; turn++) {
+        const at = `turn ${turn}`;
+        const before = await spreadLines(page);
+        await page.keyboard.press("ArrowRight");
+        await expect
+          .poll(async () => (await spreadLines(page))[0]?.text, { message: at })
+          .not.toBe(before[0].text);
+        const after = await spreadLines(page);
+        if (n > 0) {
+          expect(
+            after.slice(0, n).map((l) => l.text),
+            at,
+          ).toEqual(before.slice(-n).map((l) => l.text));
+        } else {
+          const seam = squash(before.at(-1)!.text + after[0].text);
+          expect(text.includes(seam), at).toBe(true);
+        }
+      }
+    });
+  }
+}
