@@ -338,48 +338,9 @@ export function attachPagesController(
     go(dx < 0 ? "next" : "previous");
   };
 
-  // While the mouse drags a selection, the spread it started on stays put:
-  // the browser's selection autoscroll must not turn the page (#131).
-  let selectingAt: number | null = null;
-  const holdSpread = () => {
-    if (selectingAt === null || article.scrollLeft === selectingAt) {
-      return;
-    }
-    snapping = true;
-    article.scrollLeft = selectingAt;
-    queueMicrotask(() => {
-      snapping = false;
-    });
-  };
-  const onPointerDown = (event: PointerEvent) => {
-    if (event.pointerType !== "mouse" || event.button !== 0) {
-      return;
-    }
-    ensureMeasured();
-    selectingAt =
-      step > 0
-        ? Math.min(
-            maxScroll(article),
-            Math.max(0, snapSpreadOffset(article.scrollLeft, step)),
-          )
-        : article.scrollLeft;
-  };
-  const onPointerUp = () => {
-    if (selectingAt === null) {
-      return;
-    }
-    holdSpread();
-    selectingAt = null;
-  };
-
   let snapTimer = 0;
   const onScroll = () => {
     if (snapping) {
-      return;
-    }
-    if (selectingAt !== null) {
-      window.clearTimeout(snapTimer);
-      holdSpread();
       return;
     }
     window.clearTimeout(snapTimer);
@@ -393,9 +354,6 @@ export function attachPagesController(
   article.addEventListener("touchmove", onTouchMove, { passive: false });
   article.addEventListener("touchend", onTouchEnd, { passive: true });
   article.addEventListener("scroll", onScroll, { passive: true });
-  article.addEventListener("pointerdown", onPointerDown);
-  document.addEventListener("pointerup", onPointerUp);
-  document.addEventListener("pointercancel", onPointerUp);
 
   return {
     destroy: () => {
@@ -405,9 +363,6 @@ export function attachPagesController(
       article.removeEventListener("touchmove", onTouchMove);
       article.removeEventListener("touchend", onTouchEnd);
       article.removeEventListener("scroll", onScroll);
-      article.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("pointerup", onPointerUp);
-      document.removeEventListener("pointercancel", onPointerUp);
       window.clearTimeout(snapTimer);
       article.style.removeProperty("--reading-page-width");
       article.parentElement?.style.removeProperty("--reading-spread-width");
