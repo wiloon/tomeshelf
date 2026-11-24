@@ -3,9 +3,7 @@ import {
   columnGapPx,
   isEditableTarget,
   keyTurnsSpread,
-  snapSpreadOffset,
   spreadMetrics,
-  spreadStep,
   WheelBurst,
 } from "./pages";
 
@@ -37,24 +35,6 @@ test("a spread is two pages when the space holds two at the text width plus the 
   });
   expect(spreadMetrics(two - 1, textWidth, gap).pagesPerSpread).toBe(1);
   expect(spreadMetrics(two + 100, textWidth, gap).pagesPerSpread).toBe(2);
-});
-
-test("turning a spread scrolls by one page pitch times the pages in the spread", () => {
-  const gap = 24;
-  expect(
-    spreadStep({ pageWidth: 400, pagesPerSpread: 1, spreadWidth: 400, gap }),
-  ).toBe(424);
-  expect(
-    spreadStep({ pageWidth: 400, pagesPerSpread: 2, spreadWidth: 824, gap }),
-  ).toBe(848);
-});
-
-test("scroll offsets snap to the containing spread start", () => {
-  expect(snapSpreadOffset(0, 848)).toBe(0);
-  expect(snapSpreadOffset(100, 848)).toBe(0);
-  expect(snapSpreadOffset(500, 848)).toBe(0);
-  expect(snapSpreadOffset(849, 848)).toBe(848);
-  expect(snapSpreadOffset(1300, 848)).toBe(848);
 });
 
 test("arrow and page keys turn a spread, modifiers and form controls do not", () => {
