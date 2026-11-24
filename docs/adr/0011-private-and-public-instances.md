@@ -23,4 +23,4 @@ ADR-0008 ruled out a public instance because hosting other people's uploads carr
 
 - Leaving the browser's storage loses the book on that browser. The user re-imports it; a book from a cloud drive is offered for reloading from there (ADR-0014). The library says plainly that books live only in this browser.
 - Every server-side feature that reads book content (thumbnails, the Streamer's total progression in ADR-0005, metadata) needs a browser-side counterpart on a public instance.
-- tomeshelf the project may now run a public instance. Whether that is lawful where it runs is still the operator's question; this design minimises what the server touches, it is not legal advice.
+- Tomeshelf the project may now run a public instance. Whether that is lawful where it runs is still the operator's question; this design minimises what the server touches, it is not legal advice.

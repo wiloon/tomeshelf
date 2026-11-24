@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import { unreachableMessage } from "./auth";
 import { continueReadingBook } from "./continue-reading";
 import { formatProgressLine } from "./progress-line";
 
@@ -331,7 +332,7 @@ export function LibraryPage() {
     } catch {
       result = {
         ok: false,
-        text: "tomeshelf could not be reached. Please try again.",
+        text: unreachableMessage,
       };
     }
     setOutcome(result);
@@ -353,7 +354,7 @@ export function LibraryPage() {
     } catch {
       setOutcome({
         ok: false,
-        text: "tomeshelf could not be reached. Please try again.",
+        text: unreachableMessage,
       });
     } finally {
       if (fileInput.current) fileInput.current.value = "";

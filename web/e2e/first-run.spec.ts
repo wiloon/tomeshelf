@@ -47,7 +47,7 @@ test("first run: setup, sign out, sign in", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(
-    page.getByRole("heading", { level: 1, name: "tomeshelf" }),
+    page.getByRole("heading", { level: 1, name: "Tomeshelf", exact: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("button", { name: admin.username, exact: true }),

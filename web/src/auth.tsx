@@ -4,6 +4,9 @@ import { type FormEvent, useEffect, useId, useRef, useState } from "react";
 import { usePositionQueue } from "./position-queue";
 import { useReadingSettings } from "./settings";
 
+export const unreachableMessage =
+  "Tomeshelf could not be reached. Please try again.";
+
 type Credentials = { username: string; password: string };
 
 const messages: Record<number, string> = {
@@ -68,7 +71,7 @@ function CredentialsForm({
         await navigate({ to: "/" });
       }
     } catch {
-      setError("tomeshelf could not be reached. Please try again.");
+      setError(unreachableMessage);
     } finally {
       setPending(false);
     }
@@ -177,7 +180,7 @@ export function AccountMenu() {
         return;
       }
     } catch {
-      setError("tomeshelf could not be reached. Please try again.");
+      setError(unreachableMessage);
       return;
     }
     reset();

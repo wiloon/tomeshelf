@@ -1,4 +1,4 @@
-# tomeshelf
+# Tomeshelf
 
 A reader for EPUB books, self-hosted or public, built so that word-lookup extensions such as ENX can work on the book text.
 
@@ -23,11 +23,11 @@ _Avoid_: Cloud storage, netdisk, sync
 ## Instances
 
 **Private instance**:
-A tomeshelf instance for one household or person, which keeps imported books on its own server.
+A Tomeshelf instance for one household or person, which keeps imported books on its own server.
 _Avoid_: HomeLab mode, self-hosted mode
 
 **Public instance**:
-A tomeshelf instance open to anyone, whose server never receives a book's content; each user's books stay in their own browser.
+A Tomeshelf instance open to anyone, whose server never receives a book's content; each user's books stay in their own browser.
 _Avoid_: Cloud mode, SaaS, online mode
 
 ## Reading
@@ -61,11 +61,11 @@ A named point in a book that the user can jump to; it points into a document, no
 _Avoid_: Chapter link
 
 **Block**:
-A block-level piece of a document's text (a paragraph, heading or list item) that tomeshelf numbers so it can be found again.
+A block-level piece of a document's text (a paragraph, heading or list item) that Tomeshelf numbers so it can be found again.
 _Avoid_: Paragraph (too narrow), node
 
 **Reading position**:
-Where the user last was in a book, kept by tomeshelf for that user so the book reopens there.
+Where the user last was in a book, kept by Tomeshelf for that user so the book reopens there.
 _Avoid_: Bookmark (a deliberate mark), progress (a percentage only)
 
 **Locator**:
@@ -83,5 +83,5 @@ The browser part that turns a document into readable page content and keeps trac
 _Avoid_: Renderer, viewer
 
 **DOM contract**:
-The promises tomeshelf's reading pages make about their markup, so that a browser extension can recognise them and find the book text.
+The promises Tomeshelf's reading pages make about their markup, so that a browser extension can recognise them and find the book text.
 _Avoid_: ENX API, integration
