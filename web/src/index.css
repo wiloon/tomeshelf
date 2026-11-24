@@ -360,14 +360,12 @@
   column-gap: var(--reading-column-gap, 24px);
   column-fill: auto;
   position: relative;
-  overflow-x: auto;
+  /* Still a scroll container, but the browser never scrolls it by itself:
+     wheel, keys, swipes and controls turn spreads in script, and a mouse
+     selection dragged to an edge does not autoscroll a page away (#131). */
+  overflow-x: hidden;
   overflow-y: hidden;
   scrollbar-width: none;
-}
-
-:root[data-reading-layout="pages"][data-wheel-turns-pages="false"]
-  #tomeshelf-content {
-  overflow-x: hidden;
 }
 
 :root[data-reading-layout="pages"] #tomeshelf-content * {
