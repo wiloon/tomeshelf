@@ -182,7 +182,7 @@ func TestInvalidSettingsAreRefusedAndStoreNothing(t *testing.T) {
 		"trailing brace":            saved + `}`,
 		"not an object":             `[20, 1.8, 40, "sepia"]`,
 		"missing wheel setting":     `{"fontSize":20,"lineHeight":1.8,"width":40,"theme":"sepia","layout":"pages","font":"default","repeatedLines":1}`,
-		"non-boolean wheel setting": `{"fontSize":20,"lineHeight":1.8,"width":40,"theme":"sepia","layout":"pages","font":"default","wheelTurnsPages":"false"}`,
+		"non-boolean wheel setting": `{"fontSize":20,"lineHeight":1.8,"width":40,"theme":"sepia","layout":"pages","font":"default","wheelTurnsPages":"false","repeatedLines":1}`,
 		"null wheel setting":        `{"fontSize":20,"lineHeight":1.8,"width":40,"theme":"sepia","layout":"pages","font":"default","wheelTurnsPages":null,"repeatedLines":1}`,
 		"missing font size":         `{"lineHeight":1.8,"width":40,"theme":"sepia","layout":"pages","wheelTurnsPages":true,"font":"default","repeatedLines":1}`,
 		"missing line height":       `{"fontSize":20,"width":40,"theme":"sepia","layout":"pages","wheelTurnsPages":true,"font":"default","repeatedLines":1}`,

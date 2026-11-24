@@ -2097,3 +2097,23 @@ test("blank space after the last line gives no extra spread and progression stay
   await page.keyboard.press("ArrowRight");
   await expect(page).toHaveURL(new RegExp(`/books/${id}/read/3$`));
 });
+
+// A resize that makes the whole document fit one spread scrolls nothing, so
+// no scroll event updates the controls; re-layout must.
+test("widening until the last document fits one spread hides Next", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page);
+  await page.goto(`/books/${id}/read/3`);
+  await expect(article(page)).toContainText("After the Spreads");
+  const next = page
+    .getByRole("navigation", { name: "Reading order" })
+    .getByRole("button", { name: "Next" });
+  // At this width the document fits one spread.
+  await expect(next).toBeHidden();
+  await resize(page, { width: 390, height: 800 });
+  await expect(next).toBeVisible();
+  await resize(page, { width: 1280, height: 800 });
+  await expect(next).toBeHidden();
+});

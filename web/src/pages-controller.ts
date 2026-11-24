@@ -63,6 +63,9 @@ export type PagesControllerOptions = {
   // Called after a spread turn, or once a scroll the reader did not make
   // has been aligned to a spread start (not restore or re-layout).
   onMove?: () => void;
+  // Called after every re-layout, which can change atStart and atEnd
+  // without a scroll event.
+  onRelayout?: () => void;
 };
 
 const wheelQuietMs = 300;
@@ -172,8 +175,14 @@ const startOf = (line: Line): SpreadStart =>
 export function attachPagesController(
   options: PagesControllerOptions,
 ): PagesController {
-  const { article, availableWidth, textWidthRem, onExhausted, onMove } =
-    options;
+  const {
+    article,
+    availableWidth,
+    textWidthRem,
+    onExhausted,
+    onMove,
+    onRelayout,
+  } = options;
   const burst = wheelBurst;
   let colStep = 0;
   let pagesPerSpread = 1;
@@ -258,13 +267,20 @@ export function attachPagesController(
 
   // The earliest spread start before the current one whose spread reaches
   // target (ADR-0010 Repeated lines), searched by trial layouts.
-  const searchBack = (target: Line) => {
+  // Candidates are the lines a few spreads back from column fromCol, and
+  // before the spread start `before` when one is given.
+  const searchBack = (
+    target: Line,
+    fromCol = layout.column,
+    before: number | null = current?.key ?? null,
+  ) => {
     const k = pagesPerSpread;
     const back = 3 * k;
-    const from = current;
     let cands = layout
-      .lines(Math.max(0, layout.column - back), layout.column + k - 1)
-      .filter((l) => l.start <= target.start && (!from || l.start < from.key));
+      .lines(Math.max(0, fromCol - back), fromCol + k - 1)
+      .filter(
+        (l) => l.start <= target.start && (before === null || l.start < before),
+      );
     // The likely answer: the line just below the target's height a spread's
     // width of columns back, since a spread from there fills k columns.
     const at = cands.findIndex(
@@ -456,6 +472,7 @@ export function attachPagesController(
       show(toStart(lineHolding(point.node, point.offset)));
       queueMicrotask(() => onMove?.());
     }
+    onRelayout?.();
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -684,26 +701,18 @@ export function attachPagesController(
       ensureMeasured();
       memory.clear();
       show(null);
-      const all = layout.lines(0, Number.POSITIVE_INFINITY);
-      const last = all.at(-1);
-      if (!last) {
-        return;
+      // The last line, found from the last column back past any blank ones.
+      let last: Line | null = null;
+      for (
+        let c = layout.columnAt(article.scrollWidth - 1);
+        c >= 0 && !last;
+        c--
+      ) {
+        last = layout.lines(c, c).at(-1) ?? null;
       }
-      const lastCol = last.col;
-      const back = 3 * pagesPerSpread;
-      const cands = all.filter((l) => l.col >= lastCol - back);
-      const byKey = new Map(cands.map((l) => [l.start, l]));
-      const found = findPreviousStart(
-        cands.map((l) => l.start),
-        last.end,
-        (key) => {
-          const line = byKey.get(key);
-          show(line ? toStart(line) : null);
-          return layout.lastVisible();
-        },
-      );
-      const line = found === null ? null : (byKey.get(found) ?? null);
-      show(line ? toStart(line) : null);
+      if (last) {
+        searchBack(last, last.col, null);
+      }
     },
     forget: () => memory.clear(),
   };

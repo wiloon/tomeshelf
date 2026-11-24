@@ -193,6 +193,11 @@ function BookDocument({
       return;
     }
 
+    const updateEdges = () =>
+      onEdgesRef.current({
+        start: controller.atStart(),
+        end: controller.atEnd(),
+      });
     const controller = attachPagesController({
       article,
       availableWidth: () => availableArticleWidth(article),
@@ -201,6 +206,7 @@ function BookDocument({
       repeatedLines: () => repeatedLines.current,
       onExhausted: (direction) => onExhaustedRef.current(direction),
       onMove: () => onMoveRef.current(),
+      onRelayout: () => updateEdges(),
     });
     pagesRef.current = controller;
 
@@ -226,13 +232,7 @@ function BookDocument({
     });
     noteArrival(kind);
 
-    const onScroll = () => {
-      onEdgesRef.current({
-        start: controller.atStart(),
-        end: controller.atEnd(),
-      });
-    };
-    article.addEventListener("scroll", onScroll, { passive: true });
+    article.addEventListener("scroll", updateEdges, { passive: true });
     const onResize = () => controller.relayout();
     window.addEventListener("resize", onResize);
     // A late-loading face reflows the columns; keep the spread start
@@ -241,7 +241,7 @@ function BookDocument({
     document.fonts.addEventListener("loadingdone", onFontsLoaded);
 
     return () => {
-      article.removeEventListener("scroll", onScroll);
+      article.removeEventListener("scroll", updateEdges);
       window.removeEventListener("resize", onResize);
       document.fonts.removeEventListener("loadingdone", onFontsLoaded);
       controller.destroy();
