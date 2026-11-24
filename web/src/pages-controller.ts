@@ -236,18 +236,29 @@ export function attachPagesController(
   // The earliest spread start before the current one whose spread reaches
   // target (ADR-0010 Repeated lines), searched by trial layouts.
   const searchBack = (target: Line) => {
-    const back = 3 * pagesPerSpread;
+    const k = pagesPerSpread;
+    const back = 3 * k;
     const from = current;
     let cands = layout
-      .lines(
-        Math.max(0, layout.column - back),
-        layout.column + pagesPerSpread - 1,
-      )
+      .lines(Math.max(0, layout.column - back), layout.column + k - 1)
       .filter((l) => l.start <= target.start && (!from || l.start < from.key));
-    // While even the earliest candidate reaches the target, look further back.
+    // The likely answer: the line just below the target's height a spread's
+    // width of columns back, since a spread from there fills k columns.
+    const at = cands.findIndex(
+      (l) =>
+        l.col > target.col - k ||
+        (l.col === target.col - k && l.top > target.top + 1),
+    );
+    let guess = at < 0 ? cands.length - 1 : at;
+    // Candidates that start less than a spread's width before the target may
+    // all reach it (pictures move lines): then look further back.
     for (;;) {
       const first = cands[0];
-      if (!first || isDocumentStart(first.start)) {
+      if (
+        !first ||
+        isDocumentStart(first.start) ||
+        first.col < target.col - k
+      ) {
         break;
       }
       show(startOf(first));
@@ -262,6 +273,7 @@ export function attachPagesController(
         break;
       }
       cands = more.concat(cands);
+      guess += more.length;
     }
     const byKey = new Map(cands.map((l) => [l.start, l]));
     const found = findPreviousStart(
@@ -272,6 +284,7 @@ export function attachPagesController(
         show(line ? toStart(line) : null);
         return layout.lastVisible();
       },
+      guess,
     );
     const line = found === null ? null : (byKey.get(found) ?? null);
     show(line ? toStart(line) : null);

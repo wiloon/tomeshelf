@@ -1803,3 +1803,203 @@ test("the pages layout keeps the DOM contract across turns", async ({
     ),
   ).toBe(false);
 });
+
+const spreadsHref = "OEBPS/text/spreads.xhtml";
+
+// Stores a position whose quote starts at the character at `offset` in the
+// document's text, then opens the book's resume address, which restores it
+// as the spread start (ADR-0005).
+async function resumeAt(page: Page, id: string, offset: number) {
+  const text = (await article(page).textContent()) ?? "";
+  const res = await page.request.put(`/api/books/${id}/position`, {
+    data: {
+      tabId: "e2e-spread-start",
+      sequence: Date.now(),
+      href: spreadsHref,
+      locations: { progression: 0.5 },
+      text: {
+        before: text.slice(Math.max(0, offset - 32), offset),
+        highlight: text.slice(offset, offset + 64),
+        after: text.slice(offset + 64, offset + 96),
+      },
+    },
+  });
+  expect(res.status()).toBe(204);
+  await page.goto(`/books/${id}/read`);
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  await expect(article(page)).toContainText("Spread Starts");
+}
+
+// The article-text offset and left edge of each visual line of an element's
+// text, in the current layout.
+async function linesOf(page: Page, selector: string) {
+  return article(page).evaluate((el, sel) => {
+    const target = el.querySelector(sel);
+    if (!target) throw new Error(`no ${sel}`);
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    const out: { offset: number; left: number }[] = [];
+    let offset = 0;
+    let lastTop = Number.NaN;
+    for (
+      let n = walker.nextNode() as Text | null;
+      n;
+      n = walker.nextNode() as Text | null
+    ) {
+      if (target.contains(n)) {
+        for (let i = 0; i < n.length; i++) {
+          if (/\s/.test(n.data[i])) continue;
+          range.setStart(n, i);
+          range.setEnd(n, i + 1);
+          const r = range.getBoundingClientRect();
+          if (!(Math.abs(r.top - lastTop) <= 2)) {
+            out.push({ offset: offset + i, left: r.left });
+            lastTop = r.top;
+          }
+        }
+      }
+      offset += n.length;
+    }
+    return out;
+  }, selector);
+}
+
+test("a spread start keeps its line's look: no first-line indent mid-paragraph, poem lines keep their hanging indent, list numbers stay", async ({
+  page,
+}) => {
+  await resize(page, { width: 390, height: 800 });
+  const id = await openSpreadBook(page);
+  await openSpreads(page, id);
+  const text = (await article(page).textContent()) ?? "";
+  const pageLeft = async () =>
+    Math.round((await article(page).boundingBox())?.x ?? 0);
+
+  // A wrapped continuation of a long poem line.
+  const poemLine = '[epub\\:type~="z3998:poem"] p > span:nth-of-type(2)';
+  const wrapped = await linesOf(page, poemLine);
+  expect(wrapped.length).toBeGreaterThan(1);
+  const hang = Math.round(wrapped[1].left - wrapped[0].left);
+  expect(hang).toBeGreaterThan(10);
+  await resumeAt(page, id, wrapped[1].offset);
+  await expect
+    .poll(async () => {
+      const first = (await spreadLines(page))[0];
+      return first && Math.round(first.left) - (await pageLeft());
+    })
+    .toBe(hang);
+  await expectIntact(page, text, "poem continuation");
+
+  // A poem line's own first line hangs at the page's left edge.
+  const short = await linesOf(
+    page,
+    '[epub\\:type~="z3998:poem"] p > span:nth-of-type(3)',
+  );
+  await resumeAt(page, id, short[0].offset);
+  await expect
+    .poll(async () => {
+      const first = (await spreadLines(page))[0];
+      return first && [first.text, Math.round(first.left) - (await pageLeft())];
+    })
+    .toEqual(["The swallows turn,", 0]);
+  const where = await article(page).evaluate((el) => {
+    const m = el.querySelector("[data-tomeshelf-page-start]");
+    return [
+      m?.parentElement?.tagName,
+      m?.previousElementSibling?.tagName,
+      m && getComputedStyle(m.previousElementSibling!).display,
+    ];
+  });
+  expect(where).toEqual(["P", "BR", "none"]);
+  await expectIntact(page, text, "poem line");
+
+  // A mid-paragraph line starts at the page's left edge.
+  const paragraph = await linesOf(page, "#first");
+  await resumeAt(page, id, paragraph[3].offset);
+  await expect
+    .poll(async () => {
+      const first = (await spreadLines(page))[0];
+      return first && Math.round(first.left) - (await pageLeft());
+    })
+    .toBe(0);
+
+  // A list item's first line: the marker goes before the item, outside it.
+  const item = await linesOf(page, "ol > li:nth-child(3)");
+  await resumeAt(page, id, item[0].offset);
+  await expect
+    .poll(() =>
+      article(page).evaluate((el) => {
+        const m = el.querySelector("[data-tomeshelf-page-start]");
+        return m
+          ? [m.parentElement?.tagName, getComputedStyle(m).display]
+          : null;
+      }),
+    )
+    .toEqual(["OL", "block"]);
+  expect(
+    await article(page).evaluate((el) => el.querySelectorAll("ol > li").length),
+  ).toBe(4);
+  await expectIntact(page, text, "list item");
+});
+
+test("the saved position in the pages layout is the spread start's first character, and reopening starts the spread there", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page, { repeatedLines: 2 });
+  await openSpreads(page, id);
+  const saved = page.waitForRequest(
+    (req) =>
+      req.method() === "PUT" && req.url().endsWith(`/books/${id}/position`),
+  );
+  await turnAndSettle(page, "ArrowRight");
+  const seen = await firstLineAtTopLeft(page);
+  const first = seen.text;
+  const body = (await saved).postDataJSON() as {
+    text: { highlight: string };
+    locations: { progression: number };
+  };
+  expect(
+    squash(body.text.highlight).startsWith(squash(first).slice(0, 20)),
+  ).toBe(true);
+  await page.goto(`/books/${id}/read`);
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  // The same first line at the same place (a list's line keeps its indent).
+  await expect.poll(async () => await firstLineAtTopLeft(page)).toEqual(seen);
+});
+
+test("progression is 1 on the spread ending with the document's last line, and a progression alone restores to a line", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page);
+  await page.goto(`/books/${id}/read/3`);
+  await expect(article(page)).toContainText("After the Spreads");
+  const saved = page.waitForRequest(
+    (req) =>
+      req.method() === "PUT" && req.url().endsWith(`/books/${id}/position`),
+  );
+  await page.keyboard.press("ArrowLeft");
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  const body = (await saved).postDataJSON() as {
+    href: string;
+    locations: { progression: number };
+  };
+  expect(body.href).toBe(spreadsHref);
+  expect(body.locations.progression).toBe(1);
+
+  const res = await page.request.put(`/api/books/${id}/position`, {
+    data: {
+      tabId: "e2e-progression",
+      sequence: Date.now(),
+      href: spreadsHref,
+      locations: { progression: 0.5 },
+    },
+  });
+  expect(res.status()).toBe(204);
+  await page.goto(`/books/${id}/read`);
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+  await expect.poll(async () => (await firstLineAtTopLeft(page)).left).toBe(0);
+  const left = await article(page).evaluate((el) => el.scrollLeft);
+  expect(left).toBeGreaterThan(0);
+  expect(left % 632).toBe(0);
+});

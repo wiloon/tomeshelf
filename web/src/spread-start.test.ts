@@ -175,4 +175,55 @@ describe("computed Previous (ADR-0010)", () => {
     findPreviousStart(candidates, line(1000).start, counted);
     expect(probes).toBeLessThanOrEqual(11);
   });
+
+  // Each trial layout re-lays out the whole document, so a good guess (the
+  // line at the target's height a spread's width back) saves most of them.
+  const counting = (per: number) => {
+    const calls: number[] = [];
+    return {
+      calls,
+      lastLineOf: (start: number) => {
+        calls.push(start);
+        return layout(per)(start);
+      },
+    };
+  };
+
+  test("a right guess needs two trial layouts", () => {
+    const candidates = lines(0, 199).map((l) => l.start);
+    const { calls, lastLineOf } = counting(10);
+    // Line 191 is the answer for target 200; guess index 191.
+    expect(
+      findPreviousStart(candidates, line(200).start, lastLineOf, 191),
+    ).toBe(line(191).start);
+    expect(calls.length).toBeLessThanOrEqual(2);
+  });
+
+  test.each([
+    [185, "too early"],
+    [197, "too late"],
+    [0, "far too early"],
+    [199, "the last candidate"],
+  ])(
+    "a guess %i lines in (%s) still finds the earliest start that reaches the target",
+    (guess) => {
+      const candidates = lines(0, 199).map((l) => l.start);
+      const { calls, lastLineOf } = counting(10);
+      expect(
+        findPreviousStart(candidates, line(200).start, lastLineOf, guess),
+      ).toBe(line(191).start);
+      // No start is laid out twice, and galloping then bisecting stays
+      // within twice a plain bisection (2 log2 200).
+      expect(new Set(calls).size).toBe(calls.length);
+      expect(calls.length).toBeLessThanOrEqual(16);
+    },
+  );
+
+  test("with a guess, no candidate reaching the target still takes the last one", () => {
+    const candidates = lines(0, 9).map((l) => l.start);
+    const { lastLineOf } = counting(10);
+    expect(findPreviousStart(candidates, line(30).start, lastLineOf, 4)).toBe(
+      line(9).start,
+    );
+  });
 });

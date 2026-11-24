@@ -41,31 +41,81 @@ export function previousTarget<L extends LineSpan>(
 }
 
 // The earliest of the candidate spread starts (ascending) whose spread
-// reaches the character `target`, found by binary search over trial layouts.
-// lastLineOf lays out a spread from a start and returns its last line. A
-// spread reaches the target when its last line ends at or after it, so a
-// line reflowed around the target after a resize counts. When none reaches
-// it, the last candidate: ending earlier would skip lines, but no line lies
-// between it and the current spread.
+// reaches the character `target`, searched over trial layouts. lastLineOf
+// lays out a spread from a start and returns its last line. A spread reaches
+// the target when its last line ends at or after it, so a line reflowed
+// around the target after a resize counts. When none reaches it, the last
+// candidate: ending earlier would skip lines, but no line lies between it
+// and the current spread.
+//
+// Each trial lays out the whole document, so the search starts from guess,
+// the index of the likely answer, and gallops outwards from it before
+// bisecting; without a guess it bisects all candidates.
 export function findPreviousStart(
   candidates: readonly number[],
   target: number,
   lastLineOf: (start: number) => LineSpan | null,
+  guess?: number,
 ): number | null {
-  let lo = 0;
-  let hi = candidates.length - 1;
-  let best: number | null = null;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    const last = lastLineOf(candidates[mid]);
-    if (last && last.end >= target) {
-      best = candidates[mid];
-      hi = mid - 1;
+  const n = candidates.length;
+  if (n === 0) {
+    return null;
+  }
+  const known = new Map<number, boolean>();
+  const reaches = (i: number) => {
+    let hit = known.get(i);
+    if (hit === undefined) {
+      const last = lastLineOf(candidates[i]);
+      hit = last !== null && last.end >= target;
+      known.set(i, hit);
+    }
+    return hit;
+  };
+  // The earliest index in [lo, hi] that reaches, given hi + 1 reaches or is
+  // past the end; hi + 1 when none in [lo, hi] does.
+  const bisect = (lo: number, hi: number) => {
+    let found = hi + 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (reaches(mid)) {
+        found = mid;
+        hi = mid - 1;
+      } else {
+        lo = mid + 1;
+      }
+    }
+    return found;
+  };
+  let earliest: number;
+  if (guess === undefined) {
+    earliest = bisect(0, n - 1);
+  } else {
+    const g = Math.min(n - 1, Math.max(0, guess));
+    if (reaches(g)) {
+      // Back from the guess until a start falls short.
+      let hi = g;
+      let step = 1;
+      let lo = g - step;
+      while (lo >= 0 && reaches(lo)) {
+        hi = lo;
+        step *= 2;
+        lo = g - step;
+      }
+      earliest = bisect(Math.max(0, lo + 1), hi - 1);
     } else {
-      lo = mid + 1;
+      // Forward from the guess until a start reaches.
+      let lo = g;
+      let step = 1;
+      let hi = g + step;
+      while (hi < n && !reaches(hi)) {
+        lo = hi;
+        step *= 2;
+        hi = g + step;
+      }
+      earliest = bisect(lo + 1, Math.min(hi, n) - 1);
     }
   }
-  return best ?? candidates.at(-1) ?? null;
+  return earliest < n ? candidates[earliest] : candidates[n - 1];
 }
 
 // The spread starts turned through since the last re-layout, back and

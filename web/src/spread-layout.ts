@@ -15,7 +15,8 @@ export type SpreadStart = { key: number; el?: Element };
 
 // A measured line: its character span, its column and, for a block that
 // cannot split, the block.
-export type Line = LineSpan & { col: number; el?: Element };
+// top is its distance below the article's top edge.
+export type Line = LineSpan & { col: number; top: number; el?: Element };
 
 const monolithicSelector = "img, svg, video, hr, table, pre";
 
@@ -63,7 +64,8 @@ export function createSpreadLayout(
   // Lines whose first character (or block) lies in columns c0..c1, in
   // document order, at most `limit` of them.
   function lines(c0: number, c1: number, limit = Number.POSITIVE_INFINITY) {
-    const origin = article.getBoundingClientRect().left;
+    const box = article.getBoundingClientRect();
+    const origin = box.left;
     const out: Line[] = [];
     const containers = new WeakMap<Node, Element>();
     const range = document.createRange();
@@ -119,41 +121,96 @@ export function createSpreadLayout(
         return false;
       }
       if (node instanceof Text) {
-        const len = node.length;
         const container = containerOf(node);
-        for (let i = 0; i < len; i++) {
-          if (isSpace(node.data[i])) {
-            continue;
+        // Within a text node, characters only move on to later lines and
+        // columns, so line ends and the first column in range are found by
+        // binary search instead of measuring every character.
+        const chars: number[] = [];
+        for (let i = 0; i < node.length; i++) {
+          if (!isSpace(node.data[i])) {
+            chars.push(i);
           }
-          range.setStart(node, i);
-          range.setEnd(node, i + 1);
+        }
+        const rectAt = (k: number) => {
+          range.setStart(node, chars[k]);
+          range.setEnd(node, chars[k] + 1);
           const r = range.getClientRects()[0];
-          if (!r || (r.width === 0 && r.height === 0)) {
+          return !r || (r.width === 0 && r.height === 0) ? null : r;
+        };
+        // The last k in [lo, hi) for which test holds, given it holds at lo
+        // and, once false, stays false.
+        const lastWhere = (
+          lo: number,
+          hi: number,
+          test: (k: number) => boolean,
+        ) => {
+          let a = lo;
+          let b = hi - 1;
+          while (a < b) {
+            const mid = (a + b + 1) >> 1;
+            if (test(mid)) {
+              a = mid;
+            } else {
+              b = mid - 1;
+            }
+          }
+          return a;
+        };
+        let k = 0;
+        while (k < chars.length) {
+          const r = rectAt(k);
+          if (!r) {
+            k++;
             continue;
           }
           const col = colOf(r, origin);
           if (col > c1) {
             return false;
           }
+          if (col < c0) {
+            // Skip to the first character in a column in range.
+            const before = (j: number) => {
+              const q = rectAt(j);
+              return !q || colOf(q, origin) < c0;
+            };
+            const last = lastWhere(k, chars.length, before);
+            prev = null;
+            k = last + 1;
+            continue;
+          }
+          const sameLine = (j: number) => {
+            const q = rectAt(j);
+            return (
+              q !== null &&
+              colOf(q, origin) === col &&
+              q.top < r.bottom - 2 &&
+              q.bottom > r.top + 2
+            );
+          };
+          const end = lastWhere(k, chars.length, sameLine);
           const newLine =
             !prev ||
             prev.container !== container ||
             prev.col !== col ||
             r.top >= prev.bottom - 2 ||
             r.bottom <= prev.top + 2;
-          if (col >= c0) {
-            if (newLine) {
-              if (out.length >= limit) {
-                return false;
-              }
-              out.push({ start: off + i, end: off + i, col });
-            } else if (out.length > 0) {
-              out[out.length - 1].end = off + i;
+          if (newLine) {
+            if (out.length >= limit) {
+              return false;
             }
+            out.push({
+              start: off + chars[k],
+              end: off + chars[end],
+              col,
+              top: r.top - box.top,
+            });
+          } else if (out.length > 0) {
+            out[out.length - 1].end = off + chars[end];
           }
           prev = { col, top: r.top, bottom: r.bottom, container };
+          k = end + 1;
         }
-        off += len;
+        off += node.length;
         return true;
       }
       if (!(node instanceof Element) || node === marker) {
@@ -173,6 +230,7 @@ export function createSpreadLayout(
               start,
               end: text > 0 ? off + text - 1 : start,
               col,
+              top: r.top - box.top,
               el: node,
             });
           }
