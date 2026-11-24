@@ -181,6 +181,7 @@ export function attachPagesController(
   let touchStartY: number | null = null;
   let touchOwner: "page" | "nested" | null = null;
   let alignTimer = 0;
+  let alignPending = false;
   const memory = new SpreadMemory<SpreadStart | null>();
   const layout = createSpreadLayout(article, () => ({
     colStep,
@@ -197,9 +198,15 @@ export function attachPagesController(
 
   // Remeasure when the article's width has changed but a resize event has not
   // been delivered yet (common right after setViewportSize in tests).
-  const ensureMeasured = () => {
+  const measureIfStale = () => {
     if (colStep <= 0 || availableWidth() !== measuredWidth) {
       measure();
+      return true;
+    }
+    return false;
+  };
+  const ensureMeasured = () => {
+    if (measureIfStale()) {
       layout.show(current);
       ownLeft = article.scrollLeft;
     }
@@ -271,8 +278,10 @@ export function attachPagesController(
   };
 
   const go = (direction: Turn): boolean => {
-    ensureMeasured();
+    // A scroll the reader did not make comes first: re-showing the old
+    // spread start for a new width would undo it.
     settle();
+    ensureMeasured();
     if (direction === "next") {
       const after = layout.after();
       if (!after) {
@@ -340,7 +349,9 @@ export function attachPagesController(
   // visible character (or the first visible block) becomes the spread
   // start (ADR-0010).
   const align = () => {
-    ensureMeasured();
+    alignPending = false;
+    // The scroll was made on the layout as it is: find its line there, then
+    // measure a width that changed meanwhile and show that line.
     const ch = firstVisibleCharacter(article);
     let line = ch ? lineHolding(ch.node, ch.offset) : null;
     // A block with no text to start at (a picture) that is visible before
@@ -356,8 +367,13 @@ export function attachPagesController(
       return r.right > box.left + 1 && r.left < box.right - 1;
     });
     line = block ?? line;
+    const start = toStart(line);
+    if (measureIfStale()) {
+      layout.removeMarker();
+      layout.clearScrollEnd();
+    }
     memory.clear();
-    show(toStart(line));
+    show(start);
     queueMicrotask(() => onMove?.());
   };
 
@@ -370,13 +386,40 @@ export function attachPagesController(
     }
   };
 
+  // Whether something scrolled the article since this controller last did.
+  // A scroll the browser clamped because the content shrank only moves it
+  // back to the end.
+  const scrolledByOthers = () => {
+    if (alignPending) {
+      return true;
+    }
+    if (ownLeft === null) {
+      return false;
+    }
+    const left = article.scrollLeft;
+    const clamped =
+      left < ownLeft && left >= article.scrollWidth - article.clientWidth - 1;
+    return Math.abs(left - ownLeft) > 1 && !clamped;
+  };
+
   const relayout = (apply?: () => void) => {
+    // A scroll that arrives in the same frame as a resize is kept: the line
+    // holding its first visible character becomes the spread start.
+    const ch = scrolledByOthers() ? firstVisibleCharacter(article) : null;
+    const key = ch ? layout.keyOf(ch.node, ch.offset) : null;
     apply?.();
     layout.removeMarker();
     layout.clearScrollEnd();
     measure();
     memory.clear();
     show(current);
+    const point = key === null ? null : layout.textPoint(key);
+    if (point) {
+      window.clearTimeout(alignTimer);
+      alignPending = false;
+      show(toStart(lineHolding(point.node, point.offset)));
+      queueMicrotask(() => onMove?.());
+    }
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -464,11 +507,30 @@ export function attachPagesController(
       return;
     }
     window.clearTimeout(alignTimer);
+    alignPending = true;
     alignTimer = window.setTimeout(align, 50);
+  };
+
+  // A picture that loads late moves what follows it: keep the spread start
+  // (ADR-0010 Re-layout). load does not bubble, so listen in the capture
+  // phase, and re-lay out once per frame.
+  let loadFrame = 0;
+  const onLoad = (event: Event) => {
+    if (!(event.target instanceof HTMLImageElement)) {
+      return;
+    }
+    cancelAnimationFrame(loadFrame);
+    loadFrame = requestAnimationFrame(() => {
+      // A scroll waiting to be aligned is aligned on the new layout.
+      if (!alignPending) {
+        relayout();
+      }
+    });
   };
 
   measure();
   show(null);
+  article.addEventListener("load", onLoad, true);
   document.addEventListener("keydown", onKeyDown);
   article.addEventListener("wheel", onWheel, { passive: false });
   article.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -484,6 +546,8 @@ export function attachPagesController(
       article.removeEventListener("touchmove", onTouchMove);
       article.removeEventListener("touchend", onTouchEnd);
       article.removeEventListener("scroll", onScroll);
+      article.removeEventListener("load", onLoad, true);
+      cancelAnimationFrame(loadFrame);
       window.clearTimeout(alignTimer);
       layout.removeMarker();
       article.style.removeProperty("--reading-page-width");

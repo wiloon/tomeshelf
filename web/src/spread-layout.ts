@@ -17,6 +17,8 @@ export type SpreadStart = { key: number; el?: Element };
 // cannot split, the block.
 export type Line = LineSpan & { col: number; el?: Element };
 
+const monolithicSelector = "img, svg, video, hr, table, pre";
+
 // Blocks a column never splits: pictures and other replaced content, and
 // nested scroll areas (CSS Fragmentation: scroll containers are monolithic).
 function isMonolithic(el: Element): boolean {
@@ -72,6 +74,13 @@ export function createSpreadLayout(
       container: Element;
     } | null = null;
     let off = 0;
+    // Blocks with no text between them (a run of pictures) share an offset;
+    // their order in the document keeps their starts apart.
+    const order = new Map<Element, number>();
+    for (const el of article.querySelectorAll(monolithicSelector)) {
+      order.set(el, order.size);
+    }
+    const blockStart = (el: Element) => off - 0.5 + (order.get(el) ?? 0) * 1e-6;
 
     const containerOf = (node: Text): Element => {
       const parent = node.parentElement ?? article;
@@ -159,9 +168,10 @@ export function createSpreadLayout(
             return false;
           }
           if (col >= c0) {
+            const start = blockStart(node);
             out.push({
-              start: off - 0.5,
-              end: text > 0 ? off + text - 1 : off - 0.5,
+              start,
+              end: text > 0 ? off + text - 1 : start,
               col,
               el: node,
             });
@@ -255,7 +265,7 @@ export function createSpreadLayout(
     if (r.toString().trim() !== "") {
       return false;
     }
-    return !r.cloneContents().querySelector("img, svg, video, hr, table, pre");
+    return !r.cloneContents().querySelector(monolithicSelector);
   }
 
   // The outermost block below the article that this point is the first
@@ -342,6 +352,7 @@ export function createSpreadLayout(
     removeMarker,
     lines,
     keyOf,
+    textPoint,
     get column() {
       return column;
     },

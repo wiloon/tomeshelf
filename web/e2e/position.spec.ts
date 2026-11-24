@@ -1331,14 +1331,20 @@ test("a document address in pages never restores; reload and contents stay put",
     .getByRole("link", { name: "Chapter I", exact: true })
     .click();
   await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1#chapter-1$`));
+  // The contents entry opens its target as the spread start, at the top
+  // left of the first page (ADR-0010), not at the stored position.
   await expect
     .poll(async () =>
       page.evaluate(() => {
         const el = document.getElementById("tomeshelf-content");
-        return el instanceof HTMLElement ? el.scrollLeft : -1;
+        const target = document.getElementById("chapter-1");
+        if (!el || !target) return null;
+        const a = el.getBoundingClientRect();
+        const t = target.getBoundingClientRect();
+        return [Math.round(t.left - a.left), Math.round(t.top - a.top)];
       }),
     )
-    .toBe(0);
+    .toEqual([0, 0]);
 });
 
 test("a cached document navigation flushes the departure before saving the arrival", async ({

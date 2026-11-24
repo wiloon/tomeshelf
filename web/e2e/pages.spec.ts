@@ -65,6 +65,19 @@ async function openBook(page: Page): Promise<string> {
   return new URL(page.url()).pathname.split("/")[2];
 }
 
+// Sets the window size and waits until the reader has handled the resize,
+// so what the test does next happens on the new layout: a scroll made before
+// it is kept through it (ADR-0010 Re-layout).
+async function resize(page: Page, size: { width: number; height: number }) {
+  await page.setViewportSize(size);
+  await page.evaluate(
+    () =>
+      new Promise((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(done)),
+      ),
+  );
+}
+
 function article(page: Page) {
   return page.locator("article#tomeshelf-content");
 }
@@ -102,7 +115,7 @@ test("the pages layout never scrolls the window at phone and desktop widths", as
 }) => {
   const id = await openBook(page);
   for (const width of [375, 900, 1280]) {
-    await page.setViewportSize({ width, height: 800 });
+    await resize(page, { width, height: 800 });
     await page.goto(`/books/${id}/read/1`);
     await expect(article(page)).toContainText("Document One");
     const g = await pagesGeometry(page);
@@ -123,7 +136,7 @@ test("a spread is one page on a phone and on both sides of the two-page threshol
 }) => {
   const id = await openBook(page);
 
-  await page.setViewportSize({ width: 375, height: 800 });
+  await resize(page, { width: 375, height: 800 });
   await page.goto(`/books/${id}/read/1`);
   await expect(article(page)).toContainText("Document One");
   let g = await pagesGeometry(page);
@@ -141,13 +154,13 @@ test("a spread is one page on a phone and on both sides of the two-page threshol
   await saveSettings(page, { width: 38 });
   // Just below two pages at 38rem (608px) + gap (24): 2*608+24 = 1240, plus
   // main padding 32 → viewport 1271 still one page; 1280 holds two.
-  await page.setViewportSize({ width: 1200, height: 800 });
+  await resize(page, { width: 1200, height: 800 });
   await page.reload();
   await expect(article(page)).toContainText("Document One");
   g = await pagesGeometry(page);
   expect(g?.articleWidth, "narrow desktop").toBeLessThan(700);
 
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   await page.reload();
   await expect(article(page)).toContainText("Document One");
   g = await pagesGeometry(page);
@@ -158,7 +171,7 @@ test("the article stays #tomeshelf-content and scrolls horizontally", async ({
   page,
 }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   const before = await pagesGeometry(page);
   expect(before?.articleOverflowX).toBe(true);
   expect(
@@ -182,7 +195,7 @@ test("previous and next turn one spread, and cross documents at the ends", async
   page,
 }) => {
   const id = await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await expect(control(page, "Previous")).toHaveCount(0);
 
   await control(page, "Next").click();
@@ -213,7 +226,7 @@ test("arrow keys turn a spread; theme radios keep the arrows", async ({
   page,
 }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await page.keyboard.press("ArrowRight");
   await expect
     .poll(async () => (await pagesGeometry(page))?.articleScrollLeft ?? 0)
@@ -246,7 +259,7 @@ test("arrow keys turn a spread; theme radios keep the arrows", async ({
 test("Ctrl + wheel leaves zoom to the browser and saves no position", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   const id = await openBook(page);
   // Let any arrival/re-layout work settle past the 500 ms save debounce.
   await page.waitForTimeout(800);
@@ -322,7 +335,7 @@ for (const scenario of [
   test(`Ctrl + wheel does not ${scenario.name} a plain wheel gesture`, async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
+    await resize(page, { width: 1280, height: 800 });
     await openBook(page);
     const result = await article(page).evaluate(async (el, events) => {
       const before = el.scrollLeft;
@@ -380,7 +393,7 @@ test("one wheel burst turns one spread; a second after a quiet gap turns another
   page,
 }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   const wheel = async (n: number) => {
     for (let i = 0; i < n; i++) {
       await article(page).evaluate((el) => {
@@ -411,7 +424,7 @@ test("one wheel burst turns one spread; a second after a quiet gap turns another
 
 test("a fragment opens the spread that holds its target", async ({ page }) => {
   const id = await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await page.goto(`/books/${id}/read/1#local-target`);
   const target = page.locator("#local-target");
   await expect(target).toBeVisible();
@@ -430,7 +443,7 @@ test("a fragment opens the spread that holds its target", async ({ page }) => {
 
 test("scrollIntoView on a later block shows its spread", async ({ page }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await article(page).evaluate(() => {
     const blocks = [
       ...document.querySelectorAll("#tomeshelf-content [data-tomeshelf-block]"),
@@ -455,7 +468,7 @@ test("scrollIntoView on a later block shows its spread", async ({ page }) => {
 
 test("an odd final page starts its own spread", async ({ page }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   await article(page).evaluate((el) => {
     el.replaceChildren();
     for (let i = 0; i < 5; i++) {
@@ -483,7 +496,7 @@ test("wheel momentum does not turn a second spread across documents", async ({
   page,
 }) => {
   const id = await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await article(page).evaluate((el) => {
     el.scrollLeft = el.scrollWidth;
   });
@@ -571,7 +584,7 @@ test("font size changes keep the first visible character on the spread", async (
   page,
 }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await control(page, "Next").click();
   await markFirstVisibleCharacter(page);
   await page.getByRole("button", { name: "Settings" }).click();
@@ -583,7 +596,7 @@ test("changing the font keeps the first visible character on the spread", async 
   page,
 }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await control(page, "Next").click();
   await markFirstVisibleCharacter(page);
   await page.getByRole("button", { name: "Settings" }).click();
@@ -633,7 +646,7 @@ test("a late-loading font keeps the first visible character on the spread", asyn
   await expect(article(page)).toContainText("Long fonts document paragraph 1");
   // One page wide with a large size: every earlier page reflows when the
   // face swaps in, so the drift adds up to more than a page.
-  await page.setViewportSize({ width: 600, height: 800 });
+  await resize(page, { width: 600, height: 800 });
   for (let i = 0; i < 200; i++) {
     const far = await article(page).evaluate(
       (el) => el.scrollLeft > el.scrollWidth * 0.6,
@@ -672,7 +685,7 @@ test("scrollIntoView keeps a right-page target visible after snapping", async ({
   page,
 }) => {
   await openBook(page);
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   await article(page).evaluate((el) => {
     el.replaceChildren();
     for (let i = 0; i < 6; i++) {
@@ -755,7 +768,7 @@ async function swipeArticle(page: Page, dx: number) {
 test("native touch movement turns only one spread after momentum", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 375, height: 800 });
+  await resize(page, { width: 375, height: 800 });
   await openBook(page);
   const client = await page.context().newCDPSession(page);
   await client.send("Emulation.setTouchEmulationEnabled", { enabled: true });
@@ -789,7 +802,7 @@ test("a horizontal swipe turns one spread; a click on the text does not", async 
 }) => {
   await openBook(page);
   for (const width of [375, 900, 1280]) {
-    await page.setViewportSize({ width, height: 800 });
+    await resize(page, { width, height: 800 });
     await page.reload();
     await expect(article(page)).toContainText("Document One");
     const before = (await pagesGeometry(page))?.articleScrollLeft ?? 0;
@@ -822,7 +835,7 @@ for (const { width, edge } of [
     page,
   }) => {
     await openBook(page);
-    await page.setViewportSize({ width, height: 800 });
+    await resize(page, { width, height: 800 });
     await page.reload();
     await expect(article(page)).toContainText("Document One");
     await control(page, "Next").click();
@@ -928,7 +941,7 @@ for (const { width, edge } of [
 test("native touch keeps table ownership through its edge", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 375, height: 800 });
+  await resize(page, { width: 375, height: 800 });
   await openSemanticsCommon(page);
   const table = page.locator("#wide-table");
   await table.evaluate((el) => el.scrollIntoView({ inline: "nearest" }));
@@ -978,7 +991,7 @@ test("a wheel over a wide table scrolls the table until its edge turns a spread"
 }) => {
   await openSemanticsCommon(page);
   for (const width of [375, 900, 1280]) {
-    await page.setViewportSize({ width, height: 800 });
+    await resize(page, { width, height: 800 });
     await page.reload();
     await expect(article(page)).toContainText("Common Elements");
     await article(page).evaluate((el) => {
@@ -1073,7 +1086,7 @@ test("a fitting figure stays on one page; a tall caption keeps its image whole",
 }) => {
   await openSemanticsCommon(page);
   for (const width of [375, 900, 1280]) {
-    await page.setViewportSize({ width, height: 800 });
+    await resize(page, { width, height: 800 });
     await page.reload();
     await expect(article(page)).toContainText("Common Elements");
     const at = `at ${width}`;
@@ -1205,7 +1218,7 @@ test("a fitting figure stays on one page; a tall caption keeps its image whole",
   }
 
   // A heading is not left alone at the foot of a page (ADR-0010 Breaks).
-  await page.setViewportSize({ width: 900, height: 800 });
+  await resize(page, { width: 900, height: 800 });
   await article(page).evaluate((el) => {
     el.scrollLeft = 0;
     el.replaceChildren();
@@ -1249,7 +1262,7 @@ async function disableWheel(page: Page) {
 test("disabled wheel leaves text stationary and events unprevented without saving position", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   const id = await openBook(page);
   await disableWheel(page);
   await page.waitForTimeout(800);
@@ -1296,7 +1309,7 @@ test("disabled wheel leaves text stationary and events unprevented without savin
 });
 
 test("disabled wheel keeps nested tables scrollable", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   await openSemanticsCommon(page);
   await disableWheel(page);
   const table = page.locator("#wide-table");
@@ -1317,7 +1330,7 @@ test("disabled wheel keeps nested tables scrollable", async ({ page }) => {
 test("disabled wheel preserves keys, controls, touch swipes and scrollIntoView", async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   await openBook(page);
   await disableWheel(page);
   // Close returns focus to Settings; keys belong to controls until focus leaves.
@@ -1358,7 +1371,7 @@ test("disabled wheel preserves keys, controls, touch swipes and scrollIntoView",
 });
 
 test("scroll layout ignores disabled wheel", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
   await openBook(page);
   await disableWheel(page);
   await page.getByRole("button", { name: "Settings" }).click();
@@ -1413,12 +1426,14 @@ type SeenLine = { text: string; left: number; top: number };
 async function spreadLines(page: Page): Promise<SeenLine[]> {
   return article(page).evaluate((el) => {
     const box = el.getBoundingClientRect();
+    // A glyph's box can be taller than a tight line (a heading), so a
+    // character is inside when its middle is.
     const inside = (r: DOMRect) =>
       r.width > 0 &&
       r.left >= box.left - 1 &&
       r.right <= box.right + 1 &&
-      r.top >= box.top - 1 &&
-      r.bottom <= box.bottom + 1;
+      (r.top + r.bottom) / 2 >= box.top &&
+      (r.top + r.bottom) / 2 <= box.bottom;
     const meets = (r: DOMRect) =>
       r.width > 0 &&
       r.right > box.left + 1 &&
@@ -1489,7 +1504,7 @@ for (const [width, pages] of [
     test(`Next repeats exactly ${n} lines at ${width} px (${pages})`, async ({
       page,
     }) => {
-      await page.setViewportSize({ width, height: 800 });
+      await resize(page, { width, height: 800 });
       const id = await openSpreadBook(page, { repeatedLines: n });
       await openSpreads(page, id);
       const text = await squashedText(page);
@@ -1514,3 +1529,277 @@ for (const [width, pages] of [
     });
   }
 }
+
+// After every step: at most one marker, and the article's text unchanged
+// (ADR-0010, ADR-0006).
+async function expectIntact(page: Page, text: string, at: string) {
+  const state = await article(page).evaluate((el) => ({
+    markers: el.querySelectorAll("[data-tomeshelf-page-start]").length,
+    marker: el.querySelector("[data-tomeshelf-page-start]")?.textContent ?? "",
+    text: el.textContent,
+  }));
+  expect(state.markers, at).toBeLessThanOrEqual(1);
+  expect(state.marker, at).toBe("");
+  expect(state.text, at).toBe(text);
+}
+
+const firstAndLast = (lines: SeenLine[]) => [
+  lines[0]?.text,
+  lines.at(-1)?.text,
+];
+
+async function turnAndSettle(page: Page, key: "ArrowRight" | "ArrowLeft") {
+  const before = (await spreadLines(page))[0]?.text;
+  await page.keyboard.press(key);
+  await expect
+    .poll(async () => (await spreadLines(page))[0]?.text)
+    .not.toBe(before);
+}
+
+for (const width of [1280, 390]) {
+  test(`Next ×3 then Previous ×3 returns each spread exactly at ${width} px`, async ({
+    page,
+  }) => {
+    await resize(page, { width, height: 800 });
+    const id = await openSpreadBook(page, { repeatedLines: 2 });
+    await openSpreads(page, id);
+    const text = (await article(page).textContent()) ?? "";
+    const seen = [firstAndLast(await spreadLines(page))];
+    for (let i = 1; i <= 3; i++) {
+      await turnAndSettle(page, "ArrowRight");
+      await expectIntact(page, text, `Next ${i}`);
+      seen.push(firstAndLast(await spreadLines(page)));
+    }
+    for (let i = 2; i >= 0; i--) {
+      await turnAndSettle(page, "ArrowLeft");
+      await expectIntact(page, text, `Previous to ${i}`);
+      expect(firstAndLast(await spreadLines(page)), `spread ${i}`).toEqual(
+        seen[i],
+      );
+    }
+  });
+}
+
+// The first line's box relative to the article's: top left of the first
+// page.
+async function firstLineAtTopLeft(page: Page) {
+  const box = await article(page).boundingBox();
+  const first = (await spreadLines(page))[0];
+  return {
+    text: first.text,
+    left: Math.round(first.left - (box?.x ?? 0)),
+  };
+}
+
+test("resizing two pages to one and back, and changing font size, keep the first line at the top left", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page, { repeatedLines: 1 });
+  await openSpreads(page, id);
+  const text = (await article(page).textContent()) ?? "";
+  await turnAndSettle(page, "ArrowRight");
+  await turnAndSettle(page, "ArrowRight");
+  const start = (await spreadLines(page))[0].text;
+  // The spread start is a line; after re-layout the same text begins it.
+  const word = start.split(" ")[0];
+  for (const width of [700, 1280, 390, 1280]) {
+    await resize(page, { width, height: 800 });
+    await expect
+      .poll(async () => (await firstLineAtTopLeft(page)).text.split(" ")[0], {
+        message: `at ${width}`,
+      })
+      .toBe(word);
+    expect((await firstLineAtTopLeft(page)).left, `at ${width}`).toBe(0);
+    await expectIntact(page, text, `at ${width}`);
+  }
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByRole("button", { name: "Increase font size" }).click();
+  await page.getByRole("button", { name: "Increase font size" }).click();
+  await expect
+    .poll(async () => (await firstLineAtTopLeft(page)).text.split(" ")[0])
+    .toBe(word);
+  expect((await firstLineAtTopLeft(page)).left).toBe(0);
+});
+
+test("Previous after a resize ends at or after the old spread's N-th line and skips none", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page, { repeatedLines: 2 });
+  await openSpreads(page, id);
+  const text = await squashedText(page);
+  await turnAndSettle(page, "ArrowRight");
+  await turnAndSettle(page, "ArrowRight");
+  await resize(page, { width: 900, height: 800 });
+  await expect.poll(async () => (await firstLineAtTopLeft(page)).left).toBe(0);
+  const current = await spreadLines(page);
+  const nth = squash(current[1].text);
+  await turnAndSettle(page, "ArrowLeft");
+  const previous = await spreadLines(page);
+  // The previous spread reaches the current spread's 2nd line: the text
+  // from its first line runs, without a gap, at least to that line.
+  const from = text.indexOf(squash(previous[0].text));
+  const to = text.indexOf(squash(previous.at(-1)!.text), from);
+  const target = text.indexOf(nth, from);
+  expect(from).toBeGreaterThanOrEqual(0);
+  expect(to + squash(previous.at(-1)!.text).length).toBeGreaterThanOrEqual(
+    target + nth.length,
+  );
+  // It starts before the current spread: no line is on neither spread.
+  expect(from).toBeLessThan(text.indexOf(squash(current[0].text)));
+});
+
+test("Previous near the start shows the document from its first line", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page, { repeatedLines: 3 });
+  await openSpreads(page, id);
+  const first = (await spreadLines(page))[0].text;
+  await turnAndSettle(page, "ArrowRight");
+  // Forget the memory with a resize there and back.
+  await resize(page, { width: 1200, height: 800 });
+  await resize(page, { width: 1280, height: 800 });
+  await expect.poll(async () => (await firstLineAtTopLeft(page)).left).toBe(0);
+  await turnAndSettle(page, "ArrowLeft");
+  expect(await firstLineAtTopLeft(page)).toEqual({ text: first, left: 0 });
+  expect(await article(page).evaluate((el) => el.scrollLeft)).toBe(0);
+});
+
+test("Previous from a document's first spread opens the previous one at the spread ending with its last line", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page, { repeatedLines: 1 });
+  await openSpreads(page, id);
+  await page.keyboard.press("ArrowLeft");
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+  await expect(article(page)).toContainText("Before the Spreads");
+  const text = await squashedText(page);
+  await expect
+    .poll(async () => {
+      const last = (await spreadLines(page)).at(-1)?.text ?? "";
+      return last !== "" && text.endsWith(squash(last));
+    })
+    .toBe(true);
+  // It is the earliest such spread: the one starting a line earlier does
+  // not reach the end, so Next leaves the document.
+  await page.keyboard.press("ArrowRight");
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2$`));
+});
+
+test("scrollIntoView on a later block makes the line holding the first visible character the spread start", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page);
+  await openSpreads(page, id);
+  const text = (await article(page).textContent()) ?? "";
+  await page
+    .locator("#later")
+    .evaluate((el) =>
+      el.scrollIntoView({ inline: "center", block: "nearest" }),
+    );
+  // After alignment the first line sits at the top left of the first page,
+  // and the heading is on the spread.
+  await expect.poll(async () => (await firstLineAtTopLeft(page)).left).toBe(0);
+  await expect
+    .poll(async () =>
+      (await spreadLines(page)).some((l) => l.text === "A Later Heading"),
+    )
+    .toBe(true);
+  await expect
+    .poll(() => article(page).evaluate((el) => el.scrollLeft % 1))
+    .toBe(0);
+  await expectIntact(page, text, "after scrollIntoView");
+});
+
+test("a contents entry and a fragment link open their target as the spread start", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page);
+  await page.getByRole("button", { name: "Contents" }).click();
+  await page
+    .getByRole("navigation", { name: "Table of contents" })
+    .getByRole("link", { name: "A Later Heading" })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/books/${id}/read/2#later$`));
+  await expect
+    .poll(async () => await firstLineAtTopLeft(page))
+    .toEqual({
+      text: "A Later Heading",
+      left: 0,
+    });
+  // A heading at a spread start has no space above it.
+  const gap = await article(page).evaluate((el) => {
+    const h = document.getElementById("later")!;
+    return Math.round(
+      h.getBoundingClientRect().top - el.getBoundingClientRect().top,
+    );
+  });
+  expect(gap).toBe(0);
+
+  await page.goto(`/books/${id}/read/2#tall-figure`);
+  await expect
+    .poll(async () => (await spreadLines(page))[0]?.text)
+    .toBe("[img]");
+});
+
+test("a spread holding only a picture taller than a page moves on and back without looping", async ({
+  page,
+}) => {
+  await resize(page, { width: 390, height: 700 });
+  const id = await openSpreadBook(page, { repeatedLines: 2 });
+  await openSpreads(page, id, "#tall-figure");
+  await expect
+    .poll(async () => (await spreadLines(page))[0]?.text)
+    .toBe("[img]");
+  const picture = await spreadLines(page);
+  await turnAndSettle(page, "ArrowRight");
+  const after = await spreadLines(page);
+  expect(after[0].text).not.toBe("[img]");
+  await turnAndSettle(page, "ArrowLeft");
+  expect(firstAndLast(await spreadLines(page))).toEqual(firstAndLast(picture));
+  // Without memory too: a resize forgets it.
+  await turnAndSettle(page, "ArrowRight");
+  const first = (await spreadLines(page))[0].text;
+  await resize(page, { width: 400, height: 700 });
+  await expect
+    .poll(async () => (await spreadLines(page))[0]?.text.split(" ")[0])
+    .toBe(first.split(" ")[0]);
+  await turnAndSettle(page, "ArrowLeft");
+  const back = await spreadLines(page);
+  expect(back.some((l) => l.text === "[img]")).toBe(true);
+});
+
+test("the pages layout keeps the DOM contract across turns", async ({
+  page,
+}) => {
+  await resize(page, { width: 1280, height: 800 });
+  const id = await openSpreadBook(page, { repeatedLines: 1 });
+  await openSpreads(page, id);
+  const blocks = () =>
+    article(page).evaluate((el) =>
+      [...el.querySelectorAll("[data-tomeshelf-block]")].map(
+        (b) => `${b.getAttribute("data-tomeshelf-block")}:${b.textContent}`,
+      ),
+    );
+  const start = await blocks();
+  const text = (await article(page).textContent()) ?? "";
+  for (let i = 0; i < 4; i++) {
+    await turnAndSettle(page, "ArrowRight");
+    await expectIntact(page, text, `turn ${i}`);
+    expect(await blocks(), `turn ${i}`).toEqual(start);
+  }
+  // The marker is never a numbered block.
+  expect(
+    await article(page).evaluate(
+      (el) =>
+        el
+          .querySelector("[data-tomeshelf-page-start]")
+          ?.hasAttribute("data-tomeshelf-block") ?? false,
+    ),
+  ).toBe(false);
+});
