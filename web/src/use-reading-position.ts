@@ -36,7 +36,6 @@ export function useReadingPosition({
   // Programmatic scroll/spread offset the reader last set; matching events
   // are ignored so restore, alignment and re-layout never count as a move.
   const ignoreScrollY = useRef<number | null>(null);
-  const ignoreScrollLeft = useRef<number | null>(null);
   const moved = useRef(false);
   const activeLocator = useRef<Locator | null>(null);
   const hrefRef = useRef(href);
@@ -49,14 +48,9 @@ export function useReadingPosition({
   pagesRestoreRef.current = pagesRestore;
 
   const suppressUntil = useRef(0);
-  const settledLeft = useRef<number | null>(null);
-  const settleTimer = useRef<number | undefined>(undefined);
 
   const markProgrammatic = useCallback(() => {
     ignoreScrollY.current = window.scrollY;
-    const article = contentEl();
-    ignoreScrollLeft.current = article ? article.scrollLeft : null;
-    settledLeft.current = article ? article.scrollLeft : null;
   }, []);
 
   const capture = useCallback((): Locator | null => {
@@ -80,7 +74,6 @@ export function useReadingPosition({
 
   const recordMove = useCallback(() => {
     const locator = capture();
-    settledLeft.current = contentEl()?.scrollLeft ?? null;
     if (locator) {
       schedule(locator);
     }
@@ -214,56 +207,16 @@ export function useReadingPosition({
       recordMove();
     };
 
-    const onArticleScroll = (event: Event) => {
-      if (restoring.current || layoutRef.current !== "pages") {
-        return;
-      }
-      const article = event.target;
-      if (!(article instanceof HTMLElement) || article.id !== contentId) {
-        return;
-      }
-      if (
-        ignoreScrollLeft.current !== null &&
-        ignoreScrollLeft.current === article.scrollLeft
-      ) {
-        ignoreScrollLeft.current = null;
-        return;
-      }
-      ignoreScrollLeft.current = null;
-      if (performance.now() < suppressUntil.current) {
-        return;
-      }
-      // A scroll the reader did not make itself (the user, an extension's
-      // scrollIntoView) is a move. Capture after the controller's snap
-      // (50 ms) has settled the spread.
-      window.clearTimeout(settleTimer.current);
-      settleTimer.current = window.setTimeout(() => {
-        if (
-          restoring.current ||
-          performance.now() < suppressUntil.current ||
-          article.scrollLeft === settledLeft.current
-        ) {
-          return;
-        }
-        recordMove();
-      }, 120);
-    };
+    // In the pages layout the controller reports moves itself: a turn, or a
+    // scroll the reader did not make once it is aligned (ADR-0010).
 
     // Hide and pagehide are handled by the app-level queue, which sends only
     // what is still pending; nothing is re-captured here.
     // The article may not exist yet (the document is still loading), and
     // scroll does not bubble, so listen in the capture phase.
     window.addEventListener("scroll", onScroll, { passive: true });
-    document.addEventListener("scroll", onArticleScroll, {
-      passive: true,
-      capture: true,
-    });
     return () => {
       window.removeEventListener("scroll", onScroll);
-      document.removeEventListener("scroll", onArticleScroll, {
-        capture: true,
-      });
-      window.clearTimeout(settleTimer.current);
     };
   }, [enabled, recordMove]);
 
@@ -274,7 +227,6 @@ export function useReadingPosition({
     const onResize = () => {
       // Re-layout never counts as a move, before or after the first one.
       suppressUntil.current = performance.now() + 400;
-      window.clearTimeout(settleTimer.current);
       if (moved.current) {
         return;
       }

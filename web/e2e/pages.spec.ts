@@ -1591,7 +1591,7 @@ async function firstLineAtTopLeft(page: Page) {
   };
 }
 
-test("resizing two pages to one and back, and changing font size, keep the first line at the top left", async ({
+test("resizing two pages to one and back, and changing font size, line height or width, keep the first line at the top left", async ({
   page,
 }) => {
   await resize(page, { width: 1280, height: 800 });
@@ -1614,12 +1614,17 @@ test("resizing two pages to one and back, and changing font size, keep the first
     await expectIntact(page, text, `at ${width}`);
   }
   await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByRole("button", { name: "Increase font size" }).click();
-  await page.getByRole("button", { name: "Increase font size" }).click();
-  await expect
-    .poll(async () => (await firstLineAtTopLeft(page)).text.split(" ")[0])
-    .toBe(word);
-  expect((await firstLineAtTopLeft(page)).left).toBe(0);
+  for (const setting of ["font size", "line height", "text width"]) {
+    await page.getByRole("button", { name: `Increase ${setting}` }).click();
+    await page.getByRole("button", { name: `Increase ${setting}` }).click();
+    await expect
+      .poll(async () => (await firstLineAtTopLeft(page)).text.split(" ")[0], {
+        message: setting,
+      })
+      .toBe(word);
+    expect((await firstLineAtTopLeft(page)).left, setting).toBe(0);
+    await expectIntact(page, text, setting);
+  }
 });
 
 test("Previous after a resize ends at or after the old spread's N-th line and skips none", async ({
