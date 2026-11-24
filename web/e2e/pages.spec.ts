@@ -790,6 +790,64 @@ test("a horizontal swipe turns one spread; a click on the text does not", async 
   }
 });
 
+test("drag-selecting to the left edge of a line keeps the spread and the selection", async ({
+  page,
+}) => {
+  await openBook(page);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.reload();
+  await expect(article(page)).toContainText("Document One");
+  await control(page, "Next").click();
+  await expect
+    .poll(async () => (await pagesGeometry(page))?.articleScrollLeft ?? 0)
+    .toBeGreaterThan(0);
+  const before = (await pagesGeometry(page))?.articleScrollLeft ?? 0;
+
+  // A line on the spread: press at its end, drag back past its first
+  // character to the article's left edge, where the browser autoscrolls.
+  const line = await page.evaluate(() => {
+    const content = document.getElementById("tomeshelf-content");
+    if (!content) {
+      return null;
+    }
+    const box = content.getBoundingClientRect();
+    for (const p of content.querySelectorAll("p")) {
+      const range = document.createRange();
+      range.selectNodeContents(p);
+      for (const rect of range.getClientRects()) {
+        if (
+          rect.left >= box.left &&
+          rect.right <= box.left + box.width / 2 &&
+          rect.width > 100 &&
+          rect.top > box.top + 40
+        ) {
+          return {
+            y: rect.top + rect.height / 2,
+            start: rect.left,
+            end: rect.right - 2,
+            edge: box.left,
+          };
+        }
+      }
+    }
+    return null;
+  });
+  expect(line).not.toBeNull();
+  await page.mouse.move(line!.end, line!.y);
+  await page.mouse.down();
+  await page.mouse.move(line!.start + 4, line!.y, { steps: 10 });
+  await page.mouse.move(Math.max(0, line!.edge - 8), line!.y, { steps: 5 });
+  // Hold at the edge long enough for autoscroll and a 50 ms snap.
+  await page.waitForTimeout(600);
+  await page.mouse.up();
+  await page.waitForTimeout(200);
+
+  expect((await pagesGeometry(page))?.articleScrollLeft).toBe(before);
+  expect(
+    (await page.evaluate(() => getSelection()?.toString() ?? "")).trim().length,
+  ).toBeGreaterThan(0);
+});
+
 test("native touch keeps table ownership through its edge", async ({
   page,
 }) => {
