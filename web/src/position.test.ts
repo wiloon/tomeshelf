@@ -1,6 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { renderDocument } from "./navigator";
-import { attachPagesController } from "./pages-controller";
 import {
   captureLocator,
   documentProgression,
@@ -441,43 +440,6 @@ test("a viewport with no visible text stores progressions alone", () => {
   expect(captured.locations.progression).toBe(progression);
 });
 
-test("pages progression uses the extended final spread for capture and restore", () => {
-  const content = article(`<p>Five pages.</p>`);
-  document.documentElement.style.fontSize = "16px";
-  Object.defineProperty(content, "clientWidth", { value: 624 });
-  // Model five 300px columns with 24px gaps; the CSS end marker extends
-  // the scrollable width when the controller prepares the final spread.
-  Object.defineProperty(content, "scrollWidth", {
-    get: () =>
-      Math.max(
-        1596,
-        Number.parseFloat(
-          content.style.getPropertyValue("--reading-scroll-end"),
-        ) + 1 || 0,
-      ),
-  });
-  const controller = attachPagesController({
-    article: content,
-    availableWidth: () => 1000,
-    textWidthRem: () => 18.75,
-    wheelTurnsPages: () => true,
-    onExhausted: () => {},
-  });
-  try {
-    content.scrollLeft = 648;
-    controller.prepareProgression();
-    expect(documentProgression(content, "pages")).toBe(0.5);
-    content.scrollLeft = 0;
-    controller.showProgression(0.5);
-    expect(content.scrollLeft).toBe(648);
-    expect(controller.turn("next")).toBe(true);
-    expect(documentProgression(content, "pages")).toBe(1);
-  } finally {
-    controller.destroy();
-    document.documentElement.style.removeProperty("font-size");
-  }
-});
-
 test("pages capture anchors on the first visible character in the spread", () => {
   const content = article(
     `<p id="a">Left page text.</p><p id="b">Right page text.</p>`,
@@ -527,24 +489,13 @@ test("an invalid or non-block selector counts as a missing block", () => {
   }
 });
 
-test("in the pages layout a repeated quote is tied by spread progression", () => {
+test("in the pages layout a repeated quote is tied by where restoring it would scroll", () => {
   const content = article(`<p id="a">Echo line.</p><p id="b">Echo line.</p>`);
-  Object.defineProperty(content, "scrollWidth", {
-    value: 2000,
-    configurable: true,
-  });
-  Object.defineProperty(content, "clientWidth", {
-    value: 1000,
-    configurable: true,
-  });
-  content.getBoundingClientRect = () =>
-    DOMRect.fromRect({ x: 0, y: 0, width: 1000, height: 600 });
-  previousRangeBox = rangeProto.getBoundingClientRect;
-  rangeProto.getBoundingClientRect = function (this: Range) {
-    const left = this.startContainer.parentElement?.id === "b" ? 1200 : 100;
-    return DOMRect.fromRect({ x: left, y: 0, width: 10, height: 10 });
-  };
   const prepareProgression = vi.fn();
+  // Without a marker both sit near 0.5; showing each one gives 0.5 for a
+  // and 0.9 for b.
+  const progressionOf = (node: Text) =>
+    node.parentElement?.id === "b" ? 0.9 : 0.5;
   const resolved = resolveLocator(
     content,
     {
@@ -553,7 +504,13 @@ test("in the pages layout a repeated quote is tied by spread progression", () =>
       text: { before: "", highlight: "Echo line.", after: "" },
     },
     "pages",
-    { prepareProgression, showCharacter: vi.fn(), showProgression: vi.fn() },
+    {
+      progression: () => 0,
+      progressionOf,
+      prepareProgression,
+      showCharacter: vi.fn(),
+      showProgression: vi.fn(),
+    },
   );
   expect(prepareProgression).toHaveBeenCalled();
   expect(resolved?.kind).toBe("character");

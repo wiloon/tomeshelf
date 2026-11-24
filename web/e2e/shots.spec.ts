@@ -80,6 +80,7 @@ test("shoots the reader at 390 and 1280 px", async ({ shots, shotsDir }) => {
       layout: "scroll",
       font: "default",
       wheelTurnsPages: true,
+      repeatedLines: 1,
     },
   });
   expect(settings.status()).toBe(204);

@@ -51,6 +51,7 @@ const defaults = {
   layout: "pages" as const,
   font: "default" as const,
   wheelTurnsPages: true,
+  repeatedLines: 1,
 };
 
 function article(page: Page) {

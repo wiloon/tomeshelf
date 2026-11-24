@@ -322,6 +322,7 @@ type ReadingSettings struct {
 	Layout          string
 	Font            string
 	WheelTurnsPages bool
+	RepeatedLines   int64
 }
 
 // ReadingSettings returns the user's saved reading settings, and false when
@@ -348,6 +349,7 @@ func (s *Store) SaveReadingSettings(ctx context.Context, username string, rs Rea
 		Layout:          rs.Layout,
 		Font:            rs.Font,
 		WheelTurnsPages: rs.WheelTurnsPages,
+		RepeatedLines:   rs.RepeatedLines,
 		Username:        username,
 	})
 	if err != nil {

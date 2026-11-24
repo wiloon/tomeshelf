@@ -46,6 +46,7 @@ type ReadingSetting struct {
 	Layout          string
 	Font            string
 	WheelTurnsPages bool
+	RepeatedLines   int64
 }
 
 type Session struct {

@@ -24,6 +24,8 @@ export type ReadingSettings = {
   layout: Layout;
   font: Font;
   wheelTurnsPages: boolean;
+  // How many lines a turn repeats in the pages layout (ADR-0010).
+  repeatedLines: number;
 };
 
 export const defaultFontStack =
@@ -37,6 +39,7 @@ export const defaultSettings: ReadingSettings = {
   layout: "pages",
   font: "default",
   wheelTurnsPages: true,
+  repeatedLines: 1,
 };
 
 export function fontFamilyStack(font: Font): string {
@@ -52,12 +55,13 @@ export function fontFamilyStack(font: Font): string {
   }
 }
 
-type Stepped = "fontSize" | "lineHeight" | "width";
+type Stepped = "fontSize" | "lineHeight" | "width" | "repeatedLines";
 
 const ranges: Record<Stepped, { min: number; max: number; step: number }> = {
   fontSize: { min: 14, max: 28, step: 1 },
   lineHeight: { min: 1.2, max: 2, step: 0.1 },
   width: { min: 28, max: 48, step: 2 },
+  repeatedLines: { min: 0, max: 3, step: 1 },
 };
 
 const themes: { value: Theme; label: string }[] = [
@@ -416,6 +420,13 @@ export function SettingsPanel({
             }
           />
         </label>
+        {settings.layout === "pages" && (
+          <Stepper
+            name="Repeated lines"
+            setting="repeatedLines"
+            format={(v) => String(v)}
+          />
+        )}
         <fieldset className="flex items-center justify-between gap-4">
           <legend className="float-left">Theme</legend>
           <div className="flex gap-3">

@@ -218,12 +218,18 @@ function cssSelectorFor(block: Element): string {
   return `[data-tomeshelf-block="${block.getAttribute("data-tomeshelf-block")}"]`;
 }
 
+// pagesProgression, when given, is the controller's measure of the shown
+// spread (1 when no line follows it, ADR-0005).
 export function captureLocator(
   content: HTMLElement,
   href: string,
   layout: Layout,
+  pagesProgression?: number,
 ): Locator {
-  const progression = documentProgression(content, layout);
+  const progression =
+    layout === "pages" && pagesProgression !== undefined
+      ? pagesProgression
+      : documentProgression(content, layout);
   const anchor = firstVisibleCharacter(content, layout);
   if (!anchor) {
     return { href, locations: { progression } };
@@ -306,6 +312,7 @@ function pickOccurrence(
   occurrences: Occurrence[],
   locator: Locator,
   layout: Layout,
+  pages?: PagesRestore,
 ): Occurrence | null {
   if (occurrences.length === 0) {
     return null;
@@ -326,7 +333,12 @@ function pickOccurrence(
         : n === null
           ? Number.POSITIVE_INFINITY
           : Math.abs(n - storedBlock);
-    const prog = progressionForOccurrence(content, occ, layout);
+    // In the pages layout, where restoring it would scroll: its line made
+    // the spread start, since the marker can push it into the next column.
+    const prog =
+      layout === "pages" && pages
+        ? pages.progressionOf(occ.node, occ.offset)
+        : progressionForOccurrence(content, occ, layout);
     const progDist = Math.abs(prog - storedProgression);
     return { occ, blockDist, progDist, index };
   });
@@ -347,6 +359,7 @@ function resolveQuote(
   content: HTMLElement,
   locator: Locator,
   layout: Layout,
+  pages?: PagesRestore,
 ): ResolvedPosition | null {
   if (!locator.text?.highlight) {
     return null;
@@ -356,6 +369,7 @@ function resolveQuote(
     findQuoteOccurrences(content, locator.text),
     locator,
     layout,
+    pages,
   );
   if (!picked) {
     return null;
@@ -400,7 +414,7 @@ export function resolveLocator(
     pages?.prepareProgression();
   }
   return (
-    resolveQuote(content, locator, layout) ??
+    resolveQuote(content, locator, layout, pages) ??
     resolveBlock(content, locator) ??
     (locator.locations.progression !== undefined
       ? {
@@ -412,8 +426,12 @@ export function resolveLocator(
 }
 
 export type PagesRestore = {
+  // The shown spread's progression; 1 when no line follows it.
+  progression: () => number;
   // Extends the final spread so progression measures are stable (ADR-0005).
   prepareProgression: () => void;
+  // The progression restoring the character would give (ADR-0005 Quote).
+  progressionOf: (node: Text, offset: number) => number;
   // Shows the spread holding the character.
   showCharacter: (node: Text, offset: number) => void;
   showProgression: (progression: number) => void;

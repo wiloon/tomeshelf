@@ -32,6 +32,7 @@ const defaults = {
   layout: "pages" as const,
   font: "default" as const,
   wheelTurnsPages: true,
+  repeatedLines: 1,
 };
 
 async function saveSettings(
@@ -1330,14 +1331,20 @@ test("a document address in pages never restores; reload and contents stay put",
     .getByRole("link", { name: "Chapter I", exact: true })
     .click();
   await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1#chapter-1$`));
+  // The contents entry opens its target as the spread start, at the top
+  // left of the first page (ADR-0010), not at the stored position.
   await expect
     .poll(async () =>
       page.evaluate(() => {
         const el = document.getElementById("tomeshelf-content");
-        return el instanceof HTMLElement ? el.scrollLeft : -1;
+        const target = document.getElementById("chapter-1");
+        if (!el || !target) return null;
+        const a = el.getBoundingClientRect();
+        const t = target.getBoundingClientRect();
+        return [Math.round(t.left - a.left), Math.round(t.top - a.top)];
       }),
     )
-    .toBe(0);
+    .toEqual([0, 0]);
 });
 
 test("a cached document navigation flushes the departure before saving the arrival", async ({
@@ -1622,3 +1629,40 @@ for (const outcome of ["success", "failure", "newer after failure"] as const) {
     if (outcome !== "failure") await signInAndResume(page, moved);
   });
 }
+
+// chapters.epub repeats one sentence within a paragraph, so the quote is
+// resolved by progression. The marker pushes the spread start's line into
+// the next column, so each occurrence is measured where restoring it would
+// scroll (ADR-0005 Quote), not where it sits without a marker.
+test("a repeated quote resumes at the spread start Next showed", async ({
+  page,
+}) => {
+  await setUp(page);
+  await importChapters(page);
+  const id = await openFromLibrary(page);
+  for (const [font, fontSize, width] of [
+    ["default", 16, 1280],
+    ["default", 20, 1180],
+    ["charter", 20, 1080],
+  ] as const) {
+    await saveSettings(page, { font, fontSize });
+    await page.setViewportSize({ width, height: 800 });
+    await page.goto(`/books/${id}/read/1`);
+    await expect(article(page)).toContainText("CHAPTER I.");
+    const puts = positionPuts(page);
+    await page
+      .getByRole("navigation", { name: "Reading order" })
+      .getByRole("button", { name: "Next" })
+      .click();
+    await expect.poll(() => puts.length).toBeGreaterThan(0);
+    const moved = await article(page).evaluate((el) => el.scrollLeft);
+    expect(moved, `${font} ${fontSize} ${width}`).toBeGreaterThan(0);
+    await page.goto(`/books/${id}/read`);
+    await expect(page).toHaveURL(new RegExp(`/books/${id}/read/1$`));
+    await expect
+      .poll(() => article(page).evaluate((el) => el.scrollLeft), {
+        message: `${font} ${fontSize} ${width}`,
+      })
+      .toBe(moved);
+  }
+});

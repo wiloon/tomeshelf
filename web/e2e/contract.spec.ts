@@ -82,6 +82,7 @@ async function saveScrollLayout(page: Page) {
       layout: "scroll",
       font: "default",
       wheelTurnsPages: true,
+      repeatedLines: 1,
     },
   });
   expect(res.status()).toBe(204);

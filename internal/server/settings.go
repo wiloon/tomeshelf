@@ -21,7 +21,7 @@ type Settings interface {
 // defaultSettings are the reading settings of a user who saved none: the
 // reading page's look before settings existed. Layout defaults to pages
 // (ADR-0010). Font defaults to default (the system stack).
-var defaultSettings = store.ReadingSettings{FontSize: 18, LineHeight: 1.6, Width: 38, Theme: "light", Layout: "pages", Font: "default", WheelTurnsPages: true}
+var defaultSettings = store.ReadingSettings{FontSize: 18, LineHeight: 1.6, Width: 38, Theme: "light", Layout: "pages", Font: "default", WheelTurnsPages: true, RepeatedLines: 1}
 
 var themes = []string{"light", "dark", "sepia"}
 
@@ -37,6 +37,7 @@ type settingsJSON struct {
 	Theme           *string  `json:"theme"`
 	Layout          *string  `json:"layout"`
 	Font            *string  `json:"font"`
+	RepeatedLines   *float64 `json:"repeatedLines"`
 }
 
 // stepped reports whether v is one of min, min+step, … up to max.
@@ -57,7 +58,8 @@ func validSettings(s settingsJSON) (store.ReadingSettings, bool) {
 		s.Theme == nil || !slices.Contains(themes, *s.Theme) ||
 		s.Layout == nil || !slices.Contains(layouts, *s.Layout) ||
 		s.WheelTurnsPages == nil ||
-		s.Font == nil || !slices.Contains(fonts, *s.Font) {
+		s.Font == nil || !slices.Contains(fonts, *s.Font) ||
+		!stepped(s.RepeatedLines, 0, 3, 1) {
 		return store.ReadingSettings{}, false
 	}
 	return store.ReadingSettings{
@@ -68,6 +70,7 @@ func validSettings(s settingsJSON) (store.ReadingSettings, bool) {
 		Layout:          *s.Layout,
 		Font:            *s.Font,
 		WheelTurnsPages: *s.WheelTurnsPages,
+		RepeatedLines:   int64(math.Round(*s.RepeatedLines)),
 	}, true
 }
 
@@ -107,7 +110,8 @@ func (s *site) getSettings(w http.ResponseWriter, r *http.Request) {
 	fontSize, lineHeight, width := float64(rs.FontSize), rs.LineHeight, float64(rs.Width)
 	layout := layoutOrPages(rs.Layout)
 	font := fontOrDefault(rs.Font)
-	writeJSON(w, http.StatusOK, settingsJSON{FontSize: &fontSize, LineHeight: &lineHeight, Width: &width, Theme: &rs.Theme, Layout: &layout, Font: &font, WheelTurnsPages: &rs.WheelTurnsPages})
+	repeatedLines := float64(rs.RepeatedLines)
+	writeJSON(w, http.StatusOK, settingsJSON{FontSize: &fontSize, LineHeight: &lineHeight, Width: &width, Theme: &rs.Theme, Layout: &layout, Font: &font, WheelTurnsPages: &rs.WheelTurnsPages, RepeatedLines: &repeatedLines})
 }
 
 // putSettings replaces the signed-in user's reading settings with the
@@ -129,7 +133,7 @@ func (s *site) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	rs, valid := validSettings(body)
 	if err != nil || !valid {
-		writeError(w, http.StatusBadRequest, "the body must be a JSON object with fontSize 14–28, lineHeight 1.2–2.0 in steps of 0.1, width 28–48 in steps of 2, theme light, dark or sepia, layout pages or scroll, wheelTurnsPages boolean, and font default, literata, charter or source-serif-4")
+		writeError(w, http.StatusBadRequest, "the body must be a JSON object with fontSize 14–28, lineHeight 1.2–2.0 in steps of 0.1, width 28–48 in steps of 2, theme light, dark or sepia, layout pages or scroll, wheelTurnsPages boolean, font default, literata, charter or source-serif-4, and repeatedLines 0–3")
 		return
 	}
 	if err := s.settings.SaveReadingSettings(r.Context(), user, rs); err != nil {
