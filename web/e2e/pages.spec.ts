@@ -1752,6 +1752,46 @@ test("a contents entry and a fragment link open their target as the spread start
     .toBe("[img]");
 });
 
+// EPUB 2 books often link to an empty anchor before a heading, and a
+// fragment can name a picture with no caption.
+for (const width of [1280, 390]) {
+  test(`a fragment naming a captionless picture or an empty anchor opens it as the spread start at ${width} px`, async ({
+    page,
+  }) => {
+    await resize(page, { width, height: 800 });
+    const id = await openSpreadBook(page);
+    await page.goto(`/books/${id}/read/3#bare-figure`);
+    await expect(article(page)).toContainText("After the Spreads");
+    await expect
+      .poll(async () => (await spreadLines(page))[0]?.text)
+      .toBe("[img]");
+    expect(await article(page).evaluate((el) => el.scrollLeft)).toBeGreaterThan(
+      0,
+    );
+
+    await page.goto(`/books/${id}/read/3#empty-anchor`);
+    await expect(article(page)).toContainText("After the Spreads");
+    await expect
+      .poll(async () => (await spreadLines(page))[0]?.text)
+      .toBe("An Anchored Heading");
+
+    // The same through the contents, from another document.
+    await page.goto(`/books/${id}/read/1`);
+    await expect(article(page)).toContainText("Before the Spreads");
+    await page.getByRole("button", { name: "Contents" }).click();
+    await page
+      .getByRole("navigation", { name: "Table of contents" })
+      .getByRole("link", { name: "An Anchored Heading" })
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(`/books/${id}/read/3#empty-anchor$`),
+    );
+    await expect
+      .poll(async () => (await spreadLines(page))[0]?.text)
+      .toBe("An Anchored Heading");
+  });
+}
+
 test("a spread holding only a picture taller than a page moves on and back without looping", async ({
   page,
 }) => {

@@ -233,6 +233,14 @@ export function attachPagesController(
   const toStart = (line: Line | null): SpreadStart | null =>
     !line || isDocumentStart(line.start) ? null : startOf(line);
 
+  // The article-text offset where el begins.
+  const keyBefore = (el: Element) => {
+    const range = document.createRange();
+    range.setStart(article, 0);
+    range.setEndBefore(el);
+    return range.toString().length;
+  };
+
   const atStart = () => current === null;
   const atEnd = () => {
     ensureMeasured();
@@ -641,11 +649,31 @@ export function attachPagesController(
           media.compareDocumentPosition(text) &
             Node.DOCUMENT_POSITION_FOLLOWING)
       ) {
-        const key = text ? layout.keyOf(text, 0) : 0;
-        show(isDocumentStart(key) ? null : { key: key - 0.5, el: media });
+        // A block without text is keyed just before the text that follows
+        // it (spread-layout lines).
+        const key = keyBefore(media) - 0.5;
+        show(isDocumentStart(key) ? null : { key, el: media });
         return;
       }
       if (!text) {
+        // An empty anchor (EPUB 2 books link to <a id> before a heading):
+        // the first line after it.
+        const key = keyBefore(el) - 0.5;
+        const origin = article.getBoundingClientRect().left;
+        const col = layout.columnAt(
+          el.getBoundingClientRect().left - origin + article.scrollLeft,
+        );
+        const line = layout
+          .lines(Math.max(0, col - 1), Number.POSITIVE_INFINITY)
+          .find((l) => l.start >= key);
+        // The marker goes before the anchor itself, so the anchor shares
+        // the spread start's column: a browser scrolling to the fragment
+        // then finds it already shown.
+        if (line) {
+          show(
+            isDocumentStart(line.start) ? null : { key: line.start - 0.5, el },
+          );
+        }
         return;
       }
       const offset = text.data.search(/\S/);
