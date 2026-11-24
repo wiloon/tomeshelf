@@ -35,7 +35,7 @@ for (const width of [390, 1280]) {
       await button.click();
       await expect(signOut).toBeFocused();
       await page
-        .getByRole("heading", { name: "tomeshelf", exact: true })
+        .getByRole("heading", { name: "Tomeshelf", exact: true })
         .click();
       await expect(menu).toBeHidden();
       await expect(button).toBeFocused();
@@ -68,6 +68,27 @@ for (const width of [390, 1280]) {
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/\/signin$/);
       await expect(button).toHaveCount(0);
+    });
+
+    test("sign-in says so when the server cannot be reached", async ({
+      page,
+    }) => {
+      await page.request.post("/api/setup", {
+        data: { username: "reader", password: "reader password" },
+      });
+      await page.request.delete("/api/session");
+      await page.route("**/api/session", (route) =>
+        route.request().method() === "POST" ? route.abort() : route.continue(),
+      );
+      await page.goto("/signin");
+      await page.getByLabel("Username").fill("reader");
+      await page.getByLabel("Password").fill("reader password");
+      await page.getByRole("button", { name: "Sign in" }).click();
+      await expect(
+        page.getByText("Tomeshelf could not be reached. Please try again.", {
+          exact: true,
+        }),
+      ).toBeVisible();
     });
 
     test("long username and sign-out error fit a single-line header", async ({

@@ -22,8 +22,9 @@ test("the binary serves the shell with no CSP violation", async ({ page }) => {
   );
 
   await expect(
-    page.getByRole("heading", { level: 1, name: "tomeshelf" }),
+    page.getByRole("heading", { level: 1, name: "Tomeshelf", exact: true }),
   ).toBeVisible();
+  await expect(page).toHaveTitle("Tomeshelf");
   await expect(page.getByRole("main")).toBeAttached();
   await page.waitForLoadState("networkidle");
 

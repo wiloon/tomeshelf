@@ -1,6 +1,6 @@
 # AI Agents
 
-tomeshelf is an EPUB reader. It renders book text into the main document, with no iframe and no shadow DOM, so word-lookup extensions such as ENX work on it (ADR-0001). Every change keeps the book text there. The DOM contract (ADR-0006) is a public API: changing it is a breaking change.
+Tomeshelf is an EPUB reader. It renders book text into the main document, with no iframe and no shadow DOM, so word-lookup extensions such as ENX work on it (ADR-0001). Every change keeps the book text there. The DOM contract (ADR-0006) is a public API: changing it is a breaking change.
 
 It runs as a private instance, which stores books on its server, or a public instance, whose server never receives a book's content: no bytes, title, file name or text (ADR-0011). Every change keeps a public instance's book content in the user's browser.
 
@@ -27,6 +27,7 @@ The work is done when every acceptance criterion in the issue is checked off and
 - **Commits** are conventional (`feat: …`, `fix: …`, `docs(adr): …`) and signed off with `git commit -s`; the DCO check rejects unsigned commits.
 - **Book HTML is untrusted** (ADR-0004): it reaches the DOM only through the DOMPurify Trusted Types policy.
 - **Vocabulary** comes from `GLOSSARY.md`. Use *document*, not *chapter*, for one file in the reading order.
+- **Naming.** Write `Tomeshelf` where the name is shown as a word (UI text, Markdown prose) and `tomeshelf` where a program, shell or extension matches it (identifiers, the DOM contract, code spans). Code comments and log messages stay as they are.
 - **Decisions.** When work contradicts an ADR, say so in the issue and stop for the owner. A new decision that is hard to reverse goes through `domain-modeling` as an ADR.
 
 ## Skills

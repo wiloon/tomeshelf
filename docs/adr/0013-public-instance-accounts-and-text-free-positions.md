@@ -4,7 +4,7 @@ status: accepted
 
 # Public instance: Clerk accounts, and reading positions without book text
 
-A public instance (ADR-0011) has strangers signing up, which ADR-0009's admin-managed accounts were never meant for. It uses Clerk, as ENX does (ENX ADR-015): Clerk proves who is signed in, and tomeshelf maps the Clerk user ID to its own local user ID, which keys all of tomeshelf's data. The browser app signs in with `@clerk/clerk-react`; the server verifies Clerk's session JWT against its JWKS. Sign-in is a seam chosen by the kind of instance: a private instance keeps local accounts exactly as ADR-0009 describes, and never needs a third-party account or network access.
+A public instance (ADR-0011) has strangers signing up, which ADR-0009's admin-managed accounts were never meant for. It uses Clerk, as ENX does (ENX ADR-015): Clerk proves who is signed in, and Tomeshelf maps the Clerk user ID to its own local user ID, which keys all of Tomeshelf's data. The browser app signs in with `@clerk/clerk-react`; the server verifies Clerk's session JWT against its JWKS. Sign-in is a seam chosen by the kind of instance: a private instance keeps local accounts exactly as ADR-0009 describes, and never needs a third-party account or network access.
 
 Reading positions are stored on the server, so a book resumes on another computer once the same file is imported there. To keep book text off the server, a public instance stores a position without the Locator's text quote:
 
@@ -17,8 +17,8 @@ Reading positions are stored on the server, so a book resumes on another compute
 
 - **Keep reading positions only in the browser.** Rejected: nothing then follows the user to another computer, which is most of what an account is for on a public instance.
 - **Store the text quote too.** Rejected: up to 128 characters of the book per position is small, but it is the book's text on the server, which ADR-0011 rules out. Block and offset on an identical file do the quote's job across computers.
-- **Self-registration in tomeshelf's own account code.** Rejected: it needs email verification and password reset, which ADR-0009 deliberately avoided, plus abuse protection. Clerk provides them; Google and GitHub sign-in are switches.
-- **Logto, self-hosted.** Kept in reserve: ENX chose it for its China edition (ENX ADR-036), where identity data must stay in the country and Clerk cannot be used. The seam makes it a later option for tomeshelf too.
+- **Self-registration in Tomeshelf's own account code.** Rejected: it needs email verification and password reset, which ADR-0009 deliberately avoided, plus abuse protection. Clerk provides them; Google and GitHub sign-in are switches.
+- **Logto, self-hosted.** Kept in reserve: ENX chose it for its China edition (ENX ADR-036), where identity data must stay in the country and Clerk cannot be used. The seam makes it a later option for Tomeshelf too.
 
 ## Consequences
 

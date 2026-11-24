@@ -6,7 +6,7 @@ status: accepted
 
 Each document in a book's reading order has its own URL, e.g. `/books/:id/read/:n`. A table of contents entry that points inside a document opens that URL and scrolls to the fragment. The URL is per document, not per chapter, because one Gutenberg document holds several chapters while Standard Ebooks has one chapter per document.
 
-tomeshelf stores each user's reading position on the server, shaped as a Readium Locator: the document's `href`, progression within the document, total progression, a CSS selector for the block (the Navigator numbers blocks) with a character offset inside it, and a text quote (`before`, `highlight`, `after`). Restoring tries the text quote first, then the block and offset, then the progression. Several redundant ways of locating are the established practice (Readium's Locator; the W3C Web Annotation selectors that Hypothesis uses), because any single one breaks when the content or layout changes.
+Tomeshelf stores each user's reading position on the server, shaped as a Readium Locator: the document's `href`, progression within the document, total progression, a CSS selector for the block (the Navigator numbers blocks) with a character offset inside it, and a text quote (`before`, `highlight`, `after`). Restoring tries the text quote first, then the block and offset, then the progression. Several redundant ways of locating are the established practice (Readium's Locator; the W3C Web Annotation selectors that Hypothesis uses), because any single one breaks when the content or layout changes.
 
 The fields are measured like this, so that every device computes and resolves them the same way:
 

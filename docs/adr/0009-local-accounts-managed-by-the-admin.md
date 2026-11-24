@@ -4,7 +4,7 @@ status: accepted
 
 # Local accounts managed by the admin; no self-registration, no email
 
-tomeshelf keeps its own accounts, as Kavita, Audiobookshelf, Jellyfin and Immich do. The first start creates the admin. When multiple users arrive, the admin creates accounts or sends invite links; nobody can sign up on their own. tomeshelf sends no email: there is no verification mail and no reset mail. A forgotten password is reset by the admin, or from the command line on the server. Many self-hosters have no working SMTP, and an instance on a home network has no strangers to keep out.
+Tomeshelf keeps its own accounts, as Kavita, Audiobookshelf, Jellyfin and Immich do. The first start creates the admin. When multiple users arrive, the admin creates accounts or sends invite links; nobody can sign up on their own. Tomeshelf sends no email: there is no verification mail and no reset mail. A forgotten password is reset by the admin, or from the command line on the server. Many self-hosters have no working SMTP, and an instance on a home network has no strangers to keep out.
 
 People who already run an identity provider (Authelia, Authentik, Pocket ID, Keycloak) can sign in through it later, by OIDC or a trusted reverse-proxy header (ADR-0008). Local accounts stay available beside it, so an instance never depends on another service to let its admin in.
 
@@ -16,7 +16,7 @@ People who already run an identity provider (Authelia, Authentik, Pocket ID, Key
 
 ## Consequences
 
-- The account code tomeshelf owns stays small: users, sessions, first-run setup, and later user management by the admin. It uses established pieces: argon2id from `golang.org/x/crypto`, server-side sessions stored in SQLite, the standard library's `http.CrossOriginProtection` against CSRF, and later `coreos/go-oidc` for OIDC.
+- The account code Tomeshelf owns stays small: users, sessions, first-run setup, and later user management by the admin. It uses established pieces: argon2id from `golang.org/x/crypto`, server-side sessions stored in SQLite, the standard library's `http.CrossOriginProtection` against CSRF, and later `coreos/go-oidc` for OIDC.
 - Without email, account recovery depends on whoever runs the server.
 
 ## Revisions
