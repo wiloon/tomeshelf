@@ -115,13 +115,13 @@ async function spreadBoxes(page: Page) {
     const pageWidth = Number.parseFloat(
       style.getPropertyValue("--reading-page-width"),
     );
-    const gap = Number.parseFloat(style.getPropertyValue("--reading-column-gap"));
+    const gap = Number.parseFloat(
+      style.getPropertyValue("--reading-column-gap"),
+    );
     const two = box.width > pageWidth * 1.5;
     const pages = [
       { left: box.left, right: box.left + pageWidth },
-      ...(two
-        ? [{ left: box.left + pageWidth + gap, right: box.right }]
-        : []),
+      ...(two ? [{ left: box.left + pageWidth + gap, right: box.right }] : []),
     ];
     return {
       article: {
@@ -217,11 +217,7 @@ async function markBox(page: Page): Promise<Box & { side: string | null }> {
 
 // The reading mark sits beside the character's line, on the given side of
 // the spread, outside the pages' text.
-async function expectMarkBeside(
-  page: Page,
-  char: Box,
-  side: "left" | "right",
-) {
+async function expectMarkBeside(page: Page, char: Box, side: "left" | "right") {
   await expect
     .poll(async () => {
       const m = await markBox(page);
@@ -433,8 +429,13 @@ test("a click after a short line marks it, and paragraph spacing marks the neare
   });
   const nextBox = await charBox(page, next);
   const between = (short.bottom + nextBox.top) / 2;
-  expect(nextBox.top - short.bottom, "a gap between the lines").toBeGreaterThan(2);
-  await page.mouse.click(short.left + 2, between - (between - short.bottom) / 2);
+  expect(nextBox.top - short.bottom, "a gap between the lines").toBeGreaterThan(
+    2,
+  );
+  await page.mouse.click(
+    short.left + 2,
+    between - (between - short.bottom) / 2,
+  );
   await expect
     .poll(() => saves.at(-1)?.clicked?.text?.highlight ?? "")
     .toMatch(/^\.\s*K\d{3}/);
@@ -456,7 +457,12 @@ test("clicks above the first line, below the last, beside a picture, on a link, 
   const { article: a, pages } = await spreadBoxes(page);
 
   await page.mouse.click(pages[0].left + 40, a.top + 1);
-  await expectNothingStored(page, saves, before, "a click above the first line");
+  await expectNothingStored(
+    page,
+    saves,
+    before,
+    "a click above the first line",
+  );
 
   const lowest = await article(page).evaluate((el, right) => {
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -477,7 +483,12 @@ test("clicks above the first line, below the last, beside a picture, on a link, 
   }, pages[0].right);
   if (lowest < a.bottom - 3) {
     await page.mouse.click(pages[0].left + 40, a.bottom - 2);
-    await expectNothingStored(page, saves, before, "a click below the last line");
+    await expectNothingStored(
+      page,
+      saves,
+      before,
+      "a click below the last line",
+    );
   }
 
   for (const modifier of ["Shift", "Alt", "Control", "Meta"] as const) {
@@ -512,7 +523,9 @@ test("clicks above the first line, below the last, beside a picture, on a link, 
   );
   await page.locator("#extension-popup").click();
   await expectNothingStored(page, saves, before, "a click in a popup");
-  await page.evaluate(() => document.getElementById("extension-popup")?.remove());
+  await page.evaluate(() =>
+    document.getElementById("extension-popup")?.remove(),
+  );
 
   // A picture.
   await turnTo(page, "#picture");
@@ -525,7 +538,12 @@ test("clicks above the first line, below the last, beside a picture, on a link, 
   const besideX =
     picture.x < (a2.left + a2.right) / 2 ? a2.left - 8 : a2.right + 8;
   await page.mouse.click(besideX, picture.y + picture.height / 2);
-  await expectNothingStored(page, saves, pictureState, "a click beside a picture");
+  await expectNothingStored(
+    page,
+    saves,
+    pictureState,
+    "a click beside a picture",
+  );
   await page.mouse.click(
     picture.x + picture.width / 2,
     picture.y + picture.height / 2,
@@ -548,11 +566,12 @@ test("a link is followed and marks nothing; a named anchor without href is text"
 
   await page.getByRole("link", { name: "the tail link" }).click();
   await expect(page).toHaveURL(/#tail$/);
-  await expect
-    .poll(() => saves.length)
-    .toBeGreaterThan(state.saves);
+  await expect.poll(() => saves.length).toBeGreaterThan(state.saves);
   await page.waitForTimeout(800);
-  expect(saves.at(-1)?.clicked, "the link's arrival has no clicked character").toBeUndefined();
+  expect(
+    saves.at(-1)?.clicked,
+    "the link's arrival has no clicked character",
+  ).toBeUndefined();
 });
 
 // Drags the mouse from one point to another, as a selection is made.
@@ -699,12 +718,22 @@ test("Select All marks nothing, and a selection collapsed on an unmarkable place
   const { article: a, pages } = await spreadBoxes(page);
   // A click above the first line collapses the selection and marks nothing.
   await page.mouse.click(pages[0].left + 40, a.top + 1);
-  await expectNothingStored(page, saves, before, "Select All then a click above the text");
+  await expectNothingStored(
+    page,
+    saves,
+    before,
+    "Select All then a click above the text",
+  );
 
   await page.keyboard.press("ControlOrMeta+a");
   // A click outside the reading band (the book title).
   await page.getByRole("heading", { name: title }).click();
-  await expectNothingStored(page, saves, before, "Select All then a click on the title");
+  await expectNothingStored(
+    page,
+    saves,
+    before,
+    "Select All then a click on the title",
+  );
 });
 
 test("clicking the same character again, or beside its line on either side, saves nothing new", async ({
@@ -723,7 +752,12 @@ test("clicking the same character again, or beside its line on either side, save
   // character.
   const { pages, gap } = await spreadBoxes(page);
   await page.mouse.click(pages[0].right + gap / 4, center(box).y);
-  await expectNothingStored(page, saves, before, "the gap beside the same line");
+  await expectNothingStored(
+    page,
+    saves,
+    before,
+    "the gap beside the same line",
+  );
 });
 
 test("a turn, a contents entry and an outside scroll clear the clicked character and move the mark to the spread start", async ({
@@ -771,9 +805,7 @@ test("a turn, a contents entry and an outside scroll clear the clicked character
   await expect
     .poll(() => saves.at(-1)?.clicked?.text?.highlight ?? "")
     .toMatch(new RegExp(`^${again}`));
-  await page.evaluate(() =>
-    document.querySelector("#tail")?.scrollIntoView(),
-  );
+  await page.evaluate(() => document.querySelector("#tail")?.scrollIntoView());
   await expect.poll(() => saves.at(-1)?.clicked).toBeUndefined();
   await expectMarkBeside(page, await spreadStartBox(), "left");
 
@@ -786,4 +818,439 @@ test("a turn, a contents entry and an outside scroll clear the clicked character
   await page.getByRole("link", { name: "The Tail", exact: true }).click();
   await expect(page).toHaveURL(/#tail$/);
   await expect.poll(() => saves.at(-1)?.clicked).toBeUndefined();
+});
+
+// Where a quote's first character shows: whether it is on the shown spread,
+// and how many lines are above its line on its page (a picture counts as a
+// line).
+async function placeOf(page: Page, quote: string) {
+  return article(page).evaluate((el, quote) => {
+    const a = el.getBoundingClientRect();
+    const text = el.textContent ?? "";
+    let key = text.indexOf(quote);
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let target: DOMRect | null = null;
+    for (let n = walker.nextNode() as Text | null; n && !target; ) {
+      if (key < n.length) {
+        range.setStart(n, key);
+        range.setEnd(n, key + 1);
+        target = range.getBoundingClientRect();
+      }
+      key -= n.length;
+      n = walker.nextNode() as Text | null;
+    }
+    if (!target) {
+      return null;
+    }
+    const t = target;
+    const onSpread =
+      t.left >= a.left - 1 &&
+      t.right <= a.right + 1 &&
+      t.top >= a.top - 1 &&
+      t.bottom <= a.bottom + 1;
+    // The page holding it: the same column band.
+    const style = getComputedStyle(el);
+    const pageWidth = Number.parseFloat(
+      style.getPropertyValue("--reading-page-width"),
+    );
+    const gap = Number.parseFloat(
+      style.getPropertyValue("--reading-column-gap"),
+    );
+    const pageIndex = Math.floor((t.left - a.left) / (pageWidth + gap));
+    const left = a.left + pageIndex * (pageWidth + gap);
+    const right = left + pageWidth;
+    const tops = new Set<number>();
+    const all = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = all.nextNode() as Text | null; n; ) {
+      for (let i = 0; i < n.length; i++) {
+        if (/\s/.test(n.data[i])) continue;
+        range.setStart(n, i);
+        range.setEnd(n, i + 1);
+        const r = range.getBoundingClientRect();
+        if (
+          r.width > 0 &&
+          r.left >= left - 1 &&
+          r.right <= right + 1 &&
+          r.top >= a.top - 1 &&
+          r.bottom <= t.top + 1 &&
+          r.top < t.top - 2
+        ) {
+          tops.add(Math.round(r.top));
+        }
+      }
+      n = all.nextNode() as Text | null;
+    }
+    // Lines whose tops differ by a pixel or two are one line.
+    const sorted = [...tops].sort((x, y) => x - y);
+    let lines = 0;
+    let last = Number.NEGATIVE_INFINITY;
+    for (const top of sorted) {
+      if (top - last > 3) {
+        lines++;
+      }
+      last = top;
+    }
+    for (const img of el.querySelectorAll("img")) {
+      const r = img.getBoundingClientRect();
+      if (
+        r.left >= left - 1 &&
+        r.right <= right + 1 &&
+        r.bottom <= t.top + 1 &&
+        r.top >= a.top - 1
+      ) {
+        lines++;
+      }
+    }
+    return {
+      onSpread,
+      linesAbove: lines,
+      page: pageIndex,
+      box: { left: t.left, right: t.right, top: t.top, bottom: t.bottom },
+    };
+  }, quote);
+}
+
+// The quote of the first character of the shown spread.
+async function spreadStartQuote(page: Page) {
+  return article(page).evaluate((el) => {
+    const a = el.getBoundingClientRect();
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let key = 0;
+    for (let n = walker.nextNode() as Text | null; n; ) {
+      for (let i = 0; i < n.length; i++) {
+        if (/\s/.test(n.data[i])) continue;
+        range.setStart(n, i);
+        range.setEnd(n, i + 1);
+        const r = range.getBoundingClientRect();
+        if (
+          r.width > 0 &&
+          r.left >= a.left - 1 &&
+          r.right <= a.right + 1 &&
+          r.top >= a.top - 1
+        ) {
+          return (el.textContent ?? "").slice(key + i, key + i + 64);
+        }
+      }
+      key += n.length;
+      n = walker.nextNode() as Text | null;
+    }
+    return "";
+  });
+}
+
+test("a resize that keeps the clicked line on the spread keeps the spread start", async ({
+  page,
+}) => {
+  await openBook(page);
+  await page.getByRole("button", { name: "Next" }).click();
+  const token = await tokenOnPage(page, 0);
+  const box = await charBox(page, token);
+  await page.mouse.click(center(box).x, center(box).y);
+  await page.waitForTimeout(800);
+  const start = await spreadStartQuote(page);
+  await page.setViewportSize({ width: 1270, height: 780 });
+  await expect.poll(() => spreadStartQuote(page)).toBe(start);
+  const quote = (await lineEndBox(page, token)) && token;
+  expect((await placeOf(page, quote))?.onSpread).toBe(true);
+});
+
+for (const repeated of [0, 1, 3]) {
+  test(`two pages to one after clicking the right page keeps the clicked line with ${repeated} lines above it, and saves nothing`, async ({
+    page,
+  }) => {
+    await openBook(page, { repeatedLines: repeated });
+    const saves = positionSaves(page);
+    await page.getByRole("button", { name: "Next" }).click();
+    const token = await tokenOnPage(page, 1);
+    const box = await charBox(page, token);
+    await page.mouse.click(center(box).x, center(box).y);
+    await expect
+      .poll(() => saves.at(-1)?.clicked?.text?.highlight ?? "")
+      .toMatch(new RegExp(`^${token}`));
+    await page.waitForTimeout(800);
+    const count = saves.length;
+
+    await page.setViewportSize({ width: 900, height: 800 });
+    await expect
+      .poll(async () => {
+        const place = await placeOf(page, token);
+        return (
+          place && { onSpread: place.onSpread, linesAbove: place.linesAbove }
+        );
+      })
+      .toEqual({ onSpread: true, linesAbove: repeated });
+    const place = await placeOf(page, token);
+    await expectMarkBeside(page, place?.box ?? box, "left");
+    await page.waitForTimeout(800);
+    expect(saves.length, "re-layout saved a position").toBe(count);
+  });
+}
+
+test("when a page-tall picture before the clicked line would hide it, the spread start steps forward to show it", async ({
+  page,
+}) => {
+  await openBook(page);
+  await turnTo(page, "#after-tall");
+  const line = await charBox(page, "Right after the tall picture");
+  await page.mouse.click(center(line).x, center(line).y);
+  await page.waitForTimeout(800);
+  await page.setViewportSize({ width: 900, height: 800 });
+  await expect
+    .poll(
+      async () =>
+        (await placeOf(page, "Right after the tall picture"))?.onSpread,
+    )
+    .toBe(true);
+});
+
+test("reopening the book restores the clicked line and its mark, at the same width and narrower", async ({
+  page,
+}) => {
+  const id = await openBook(page);
+  const saves = positionSaves(page);
+  await page.getByRole("button", { name: "Next" }).click();
+  const token = await tokenOnPage(page, 1);
+  const box = await charBox(page, token);
+  await page.mouse.click(center(box).x, center(box).y);
+  await expect
+    .poll(() => saves.at(-1)?.clicked?.text?.highlight ?? "")
+    .toMatch(new RegExp(`^${token}`));
+  await page.waitForTimeout(800);
+  const start = await spreadStartQuote(page);
+
+  await page.goto("/");
+  await page.goto(`/books/${id}/read`);
+  await expect(article(page)).toContainText("Clicked Lines");
+  await expect.poll(() => spreadStartQuote(page)).toBe(start);
+  await expectMarkBeside(page, await charBox(page, token), "right");
+
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.goto("/");
+  await page.goto(`/books/${id}/read`);
+  await expect(article(page)).toContainText("Clicked Lines");
+  await expect
+    .poll(async () => {
+      const place = await placeOf(page, token);
+      return (
+        place && { onSpread: place.onSpread, linesAbove: place.linesAbove }
+      );
+    })
+    .toEqual({ onSpread: true, linesAbove: 1 });
+  await expectMarkBeside(page, await charBox(page, token), "left");
+});
+
+test("a clicked character that does not resolve leaves the spread start and its mark", async ({
+  page,
+}) => {
+  const id = await openBook(page);
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.waitForTimeout(800);
+  const start = await spreadStartQuote(page);
+  const href = await page.evaluate(async (id) => {
+    const res = await fetch(`/api/books/${id}/position`);
+    return (await res.json()).href as string;
+  }, id);
+  const put = await page.request.put(`/api/books/${id}/position`, {
+    data: {
+      tabId: "elsewhere",
+      sequence: 1,
+      href,
+      locations: { progression: 0.2 },
+      text: { highlight: start },
+      clicked: {
+        cssSelector: '[data-tomeshelf-block="9999"]',
+        characterOffset: 3,
+        text: { highlight: "words this book does not have" },
+      },
+    },
+  });
+  expect(put.status()).toBe(204);
+  await page.goto("/");
+  await page.goto(`/books/${id}/read`);
+  await expect.poll(() => spreadStartQuote(page)).toBe(start);
+  await expectMarkBeside(page, await lineEndBox(page, start), "left");
+});
+
+test("in a table a margin click marks the row's last character, and in a pre the mark sits at the clicked line's height", async ({
+  page,
+}) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  await turnTo(page, "#grid");
+  const row = await charBox(page, "Row 2 first cell");
+  const rowEnd = await lineEnd(page, "Row 2 first cell");
+  expect(rowEnd?.highlight).toMatch(/^l\s*Row 3/);
+  const { article: a } = await spreadBoxes(page);
+  const side = row.left < (a.left + a.right) / 2 ? "left" : "right";
+  await page.mouse.click(
+    side === "left" ? a.left - 8 : a.right + 8,
+    center(row).y,
+  );
+  await expect
+    .poll(() => saves.at(-1)?.clicked?.text?.highlight)
+    .toBe(rowEnd?.highlight);
+  await expectMarkBeside(page, row, side);
+
+  await turnTo(page, "#code");
+  const second = await charBox(page, "second pre line");
+  await page.mouse.click(center(second).x, center(second).y);
+  await expect
+    .poll(() => saves.at(-1)?.clicked?.text?.highlight ?? "")
+    .toMatch(/^second pre line/);
+  const { article: b } = await spreadBoxes(page);
+  const preSide = second.left < (b.left + b.right) / 2 ? "left" : "right";
+  await expectMarkBeside(page, second, preSide);
+});
+
+test("on a spread whose right page is empty, clicks on that page or its margin mark nothing", async ({
+  page,
+}) => {
+  const id = await openBook(page);
+  await page.goto(`/books/${id}/read/2`);
+  await expect(article(page)).toContainText("The End");
+  const saves = positionSaves(page);
+  const { article: a, pages } = await spreadBoxes(page);
+  expect(pages).toHaveLength(2);
+  const end = await charBox(page, "The last short");
+  await page.mouse.click(center(end).x, center(end).y);
+  await expect.poll(() => saves.at(-1)?.clicked).toBeTruthy();
+  const before = await settledState(page, saves);
+  await page.mouse.click((pages[1].left + pages[1].right) / 2, center(end).y);
+  await expectNothingStored(
+    page,
+    saves,
+    before,
+    "a click on the empty right page",
+  );
+  await page.mouse.click(a.right + 8, center(end).y);
+  await expectNothingStored(
+    page,
+    saves,
+    before,
+    "a click in the empty page's margin",
+  );
+});
+
+test("a lookup extension that stops the click and prevents its default does not hide it", async ({
+  page,
+}) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  await article(page).evaluate((el) => {
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      el.addEventListener(type, (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      });
+    }
+  });
+  const token = await tokenOnPage(page, 1);
+  const box = await charBox(page, token);
+  await page.mouse.click(center(box).x, center(box).y);
+  await expect
+    .poll(() => saves.at(-1)?.clicked?.text?.highlight ?? "")
+    .toMatch(new RegExp(`^${token}`));
+  await expectMarkBeside(page, box, "right");
+});
+
+test("at the two-page breakpoint the mark fits the margin, and it keeps 3:1 contrast in every theme", async ({
+  page,
+}) => {
+  // 2 × 38rem pages + the gap, plus main's 16 px padding on each side.
+  await openBook(page, {}, { width: 2 * 608 + 24 + 32, height: 800 });
+  const { article: a, pages } = await spreadBoxes(page);
+  expect(pages, "two pages at the breakpoint").toHaveLength(2);
+  for (const index of [0, 1] as const) {
+    const token = await tokenOnPage(page, index);
+    const box = await charBox(page, token);
+    await page.mouse.click(center(box).x, center(box).y);
+    await expectMarkBeside(page, box, index === 0 ? "left" : "right");
+    const m = await markBox(page);
+    expect(m.left, "inside the window").toBeGreaterThanOrEqual(0);
+    expect(m.right, "inside the window").toBeLessThanOrEqual(2 * 608 + 24 + 32);
+    expect(
+      index === 0 ? m.right <= a.left : m.left >= a.right,
+      "covers no text",
+    ).toBe(true);
+  }
+
+  for (const theme of ["light", "sepia", "dark"] as const) {
+    await saveSettings(page, { theme });
+    await page.reload();
+    await expect(mark(page)).toBeVisible();
+    const ratio = await mark(page).evaluate((el) => {
+      // Any CSS colour (Tailwind's are oklch) as sRGB, through a canvas.
+      const canvas = document.createElement("canvas").getContext("2d");
+      const parse = (c: string) => {
+        if (!canvas) {
+          return [0, 0, 0];
+        }
+        canvas.clearRect(0, 0, 1, 1);
+        canvas.fillStyle = c;
+        canvas.fillRect(0, 0, 1, 1);
+        return [...canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+      };
+      const style = getComputedStyle(el);
+      const fg = parse(style.color);
+      const alpha = Number(style.opacity);
+      let bgEl: Element | null = el.parentElement;
+      let bg = [255, 255, 255];
+      while (bgEl) {
+        const c = getComputedStyle(bgEl).backgroundColor;
+        if (c && c !== "rgba(0, 0, 0, 0)" && c !== "transparent") {
+          bg = parse(c);
+          break;
+        }
+        bgEl = bgEl.parentElement;
+      }
+      const shown = fg.map((v, i) => v * alpha + bg[i] * (1 - alpha));
+      const lum = (rgb: number[]) => {
+        const [r, g, b] = rgb.map((v) => {
+          const s = v / 255;
+          return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        });
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      const l1 = lum(shown);
+      const l2 = lum(bg);
+      return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+    });
+    expect(ratio, `contrast in ${theme}`).toBeGreaterThanOrEqual(3);
+  }
+});
+
+test("the scroll layout stores no clicked character, shows no mark and ignores a stored one", async ({
+  page,
+}) => {
+  const id = await openBook(page, { layout: "scroll" });
+  const saves = positionSaves(page);
+  const word = await charBox(page, "K003");
+  await page.mouse.click(center(word).x, center(word).y);
+  await page.mouse.wheel(0, 600);
+  await expect.poll(() => saves.length).toBeGreaterThan(0);
+  expect(saves.at(-1)?.clicked).toBeUndefined();
+  await expect(mark(page)).toHaveCount(0);
+
+  const stored = saves.at(-1) as Saved;
+  const put = await page.request.put(`/api/books/${id}/position`, {
+    data: {
+      tabId: "elsewhere",
+      sequence: 1,
+      href: stored.href,
+      locations: stored.locations,
+      text: stored.text,
+      clicked: { text: { highlight: "K020" } },
+    },
+  });
+  expect(put.status()).toBe(204);
+  await page.goto("/");
+  await page.goto(`/books/${id}/read`);
+  await expect(article(page)).toContainText("Clicked Lines");
+  await expect(mark(page)).toHaveCount(0);
+  await page.mouse.wheel(0, 400);
+  await expect
+    .poll(() => saves.at(-1)?.clicked === undefined && saves.length > 1)
+    .toBe(true);
 });

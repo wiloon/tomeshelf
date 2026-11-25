@@ -773,7 +773,9 @@ export function attachPagesController(
     let best = lastChar;
     for (const c of chars) {
       const mid = (c.rect.left + c.rect.right) / 2;
-      if (Math.abs(x - mid) < Math.abs(x - (best.rect.left + best.rect.right) / 2)) {
+      if (
+        Math.abs(x - mid) < Math.abs(x - (best.rect.left + best.rect.right) / 2)
+      ) {
         best = c;
       }
     }
@@ -896,8 +898,7 @@ export function attachPagesController(
     if (
       (article.contains(target) && target.closest(ownClickSelector)) ||
       !start ||
-      Math.hypot(event.clientX - start.x, event.clientY - start.y) >
-        clickSlopPx
+      Math.hypot(event.clientX - start.x, event.clientY - start.y) > clickSlopPx
     ) {
       return;
     }
