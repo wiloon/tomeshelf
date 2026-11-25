@@ -73,7 +73,7 @@ Where the user last was in a book, kept by Tomeshelf for that user so the book r
 _Avoid_: Bookmark (a deliberate mark), progress (a percentage only)
 
 **Reading mark**:
-The arrow in the margin beside the line of the reading position: the line the user last clicked or selected on the spread, or else the spread start.
+The arrow in the margin beside the line of the reading position: the line the user last clicked, clicked beside or selected on the spread, or else the spread start. There is one at a time.
 _Avoid_: Bookmark, cursor, caret
 
 **Locator**:
