@@ -11,6 +11,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -27,6 +28,7 @@ import {
   renderDocument,
   tocEntryURL,
 } from "./navigator";
+import { type DocumentText, PageNumbers } from "./page-numbers";
 import type { Turn } from "./pages";
 import {
   attachPagesController,
@@ -106,6 +108,23 @@ function sameHref(a: string, b: string): boolean {
 
 // The document's text, rendered into the page's own DOM (ADR-0001). It
 // starts at its top, at the URL's fragment, or at a restored Locator.
+type SpreadPages = { page: number; pages: number; perSpread: number };
+
+const pageNumbersHint =
+  "Page numbers are estimates and change with window size and reading settings.";
+
+// A reading-order link's text counts; a manifest without them counts 0.
+function documentText(link: ManifestLink): DocumentText {
+  const count = (key: string) => {
+    const value = link.properties?.[key];
+    return typeof value === "number" && value >= 0 ? value : 0;
+  };
+  return {
+    characters: count("tomeshelf:characters"),
+    pictures: count("tomeshelf:pictures"),
+  };
+}
+
 function BookDocument({
   html,
   place,
@@ -119,6 +138,7 @@ function BookDocument({
   flushDeparting,
   onMove,
   onEdges,
+  onSpread,
   onExhausted,
 }: {
   html: string;
@@ -133,6 +153,9 @@ function BookDocument({
   flushDeparting: () => void;
   onMove: () => void;
   onEdges: (edges: { start: boolean; end: boolean }) => void;
+  // The shown spread's pages, after every move and re-layout; relaidOut
+  // says the layout changed (ADR-0010 Page numbers).
+  onSpread: (spread: SpreadPages, relaidOut: boolean) => void;
   onExhausted: (direction: Turn) => void;
 }) {
   const ref = useRef<HTMLElement>(null);
@@ -150,6 +173,8 @@ function BookDocument({
   onExhaustedRef.current = onExhausted;
   const onEdgesRef = useRef(onEdges);
   onEdgesRef.current = onEdges;
+  const onSpreadRef = useRef(onSpread);
+  onSpreadRef.current = onSpread;
   const onMoveRef = useRef(onMove);
   onMoveRef.current = onMove;
   const restoreRef = useRef(restore);
@@ -193,11 +218,24 @@ function BookDocument({
       return;
     }
 
-    const updateEdges = () =>
+    // Page numbers are read once a frame at most, after the spread settles.
+    let spreadFrame = 0;
+    let relaidOut = false;
+    const reportSpread = (relayout = false) => {
+      relaidOut ||= relayout;
+      cancelAnimationFrame(spreadFrame);
+      spreadFrame = requestAnimationFrame(() => {
+        onSpreadRef.current(controller.spreadPages(), relaidOut);
+        relaidOut = false;
+      });
+    };
+    const updateEdges = () => {
       onEdgesRef.current({
         start: controller.atStart(),
         end: controller.atEnd(),
       });
+      reportSpread();
+    };
     const controller = attachPagesController({
       article,
       availableWidth: () => availableArticleWidth(article),
@@ -205,8 +243,15 @@ function BookDocument({
       wheelTurnsPages: () => wheelTurnsPages.current,
       repeatedLines: () => repeatedLines.current,
       onExhausted: (direction) => onExhaustedRef.current(direction),
-      onMove: () => onMoveRef.current(),
-      onRelayout: () => updateEdges(),
+      onMove: () => {
+        onMoveRef.current();
+        // An alignment can place the marker without moving scrollLeft.
+        reportSpread();
+      },
+      onRelayout: (bookWide) => {
+        reportSpread(bookWide);
+        updateEdges();
+      },
     });
     pagesRef.current = controller;
 
@@ -225,10 +270,7 @@ function BookDocument({
         }
       }
       markProgrammatic();
-      onEdgesRef.current({
-        start: controller.atStart(),
-        end: controller.atEnd(),
-      });
+      updateEdges();
     });
     noteArrival(kind);
 
@@ -244,6 +286,7 @@ function BookDocument({
       article.removeEventListener("scroll", updateEdges);
       window.removeEventListener("resize", onResize);
       document.fonts.removeEventListener("loadingdone", onFontsLoaded);
+      cancelAnimationFrame(spreadFrame);
       controller.destroy();
       if (pagesRef.current === controller) {
         pagesRef.current = null;
@@ -519,11 +562,13 @@ function PagesOrderNav({
   n,
   length,
   edges,
+  pageLabel,
   onTurn,
 }: {
   n: number;
   length: number;
   edges: { start: boolean; end: boolean };
+  pageLabel: string | null;
   onTurn: (direction: Turn) => void;
 }) {
   const showPrevious = !(edges.start && n <= 1);
@@ -531,16 +576,23 @@ function PagesOrderNav({
   return (
     <nav
       aria-label="Reading order"
-      className="reading-column flex justify-between gap-4"
+      className="reading-column grid grid-cols-[1fr_auto_1fr] items-baseline gap-4"
     >
       {showPrevious ? (
         <button
           type="button"
           onClick={() => onTurn("previous")}
-          className="underline"
+          className="justify-self-start underline"
         >
           Previous
         </button>
+      ) : (
+        <span />
+      )}
+      {pageLabel ? (
+        <span title={pageNumbersHint} className="text-sm tabular-nums">
+          {pageLabel}
+        </span>
       ) : (
         <span />
       )}
@@ -548,7 +600,7 @@ function PagesOrderNav({
         <button
           type="button"
           onClick={() => onTurn("next")}
-          className="underline"
+          className="justify-self-end underline"
         >
           Next
         </button>
@@ -589,6 +641,25 @@ export function ReaderPage() {
   const settingsButton = useRef<HTMLButtonElement>(null);
   const pagesRef = useRef<PagesController | null>(null);
   const [edges, setEdges] = useState({ start: true, end: false });
+  const [pageLabel, setPageLabel] = useState<string | null>(null);
+  // One book's page numbers in this tab, kept across its documents.
+  const pageNumbers = useMemo(
+    () =>
+      manifest.data
+        ? new PageNumbers(manifest.data.readingOrder.map(documentText))
+        : null,
+    [manifest.data],
+  );
+  const onSpread = (spread: SpreadPages, relaidOut: boolean) => {
+    if (!pageNumbers) {
+      return;
+    }
+    if (relaidOut) {
+      pageNumbers.forget();
+    }
+    pageNumbers.measure(n - 1, spread.pages);
+    setPageLabel(pageNumbers.label(n - 1, spread.page, spread.perSpread));
+  };
   const { settings, load, loadSettled } = useReadingSettings();
   const pagesRestore = useCallback((): PagesRestore | null => {
     const controller = pagesRef.current;
@@ -753,6 +824,7 @@ export function ReaderPage() {
           flushDeparting={flushDeparting}
           onMove={recordMove}
           onEdges={setEdges}
+          onSpread={onSpread}
           onExhausted={onExhausted}
         />
       )}
@@ -761,6 +833,7 @@ export function ReaderPage() {
           n={n}
           length={readingOrder.length}
           edges={edges}
+          pageLabel={pageLabel}
           onTurn={turn}
         />
       ) : (

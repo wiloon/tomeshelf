@@ -226,3 +226,74 @@ func TestPackagePathsAreConfinedToThePackage(t *testing.T) {
 	}
 	requireNoImage(t, e.get(t, base+"../../../secret.txt"), http.StatusUnauthorized)
 }
+
+// withText replaces the text document of a coverEPUB book.
+func withText(t *testing.T, book []byte, xhtml string) []byte {
+	t.Helper()
+	zr, err := zip.NewReader(bytes.NewReader(book), int64(len(book)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var archive bytes.Buffer
+	zw := zip.NewWriter(&archive)
+	for _, entry := range zr.File {
+		if entry.Name != "OEBPS/text.xhtml" {
+			if err := zw.Copy(entry); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		w, err := zw.Create(entry.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write([]byte(xhtml)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return archive.Bytes()
+}
+
+// ADR-0010 Page numbers: characters are the non-whitespace UTF-16 code units
+// of the body's text without script and style; pictures are img, svg and
+// video not inside an svg.
+func TestTheManifestCountsEachDocumentsCharactersAndPictures(t *testing.T) {
+	e := newEnv(t, buildFS())
+	cookie := e.setup(t)
+	text := `<?xml version="1.0" encoding="UTF-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Not counted</title><style>p { color: red }</style><script src="a.js"/></head>
+<body>
+  <p>Héllo  wörld <em>😀</em></p>
+  <script>var notCounted = 1;</script>
+  <style>p { margin: 0 }</style>
+  <p><img src="a.png" alt="not counted"/></p>
+  <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="a.png"/></svg>
+  <video src="v.mp4"></video>
+</body></html>`
+	id := e.importedID(t, cookie, withText(t, coverEPUB(t, "Counted Book", nil), text))
+
+	res := e.get(t, manifestPath(id), cookie)
+	requireStatus(t, res, http.StatusOK)
+	var manifest struct {
+		ReadingOrder []struct {
+			Properties map[string]any `json:"properties"`
+		} `json:"readingOrder"`
+	}
+	if err := json.Unmarshal([]byte(body(t, res)), &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.ReadingOrder) != 1 {
+		t.Fatalf("readingOrder has %d entries, want 1", len(manifest.ReadingOrder))
+	}
+	props := manifest.ReadingOrder[0].Properties
+	// "Héllo" 5 + "wörld" 5 + one emoji as 2 UTF-16 code units.
+	if got := props["tomeshelf:characters"]; got != float64(12) {
+		t.Errorf("tomeshelf:characters = %v, want 12", got)
+	}
+	if got := props["tomeshelf:pictures"]; got != float64(3) {
+		t.Errorf("tomeshelf:pictures = %v, want 3", got)
+	}
+}

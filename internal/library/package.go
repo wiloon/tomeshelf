@@ -1,10 +1,13 @@
 package library
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -32,7 +35,47 @@ func (l *Library) Manifest(ctx context.Context, username string, id string) ([]b
 		return nil, err
 	}
 	defer publication.Close()
+	if err := l.addTextCounts(original, publication.Manifest.ReadingOrder); err != nil {
+		return nil, err
+	}
 	return json.Marshal(publication.Manifest)
+}
+
+// addTextCounts gives each reading-order link its document's characters and
+// pictures as the properties tomeshelf:characters and tomeshelf:pictures,
+// counted on each request (ADR-0010 Page numbers). A document missing from
+// the archive counts nothing.
+func (l *Library) addTextCounts(epubPath string, links manifest.LinkList) error {
+	r, size, err := l.openOriginal(epubPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	zr, err := zip.NewReader(r, size)
+	if err != nil {
+		return err
+	}
+	byName := make(map[string]*zip.File, len(zr.File))
+	for _, f := range zr.File {
+		byName[path.Clean("/"+f.Name)] = f
+	}
+	for i := range links {
+		characters, pictures := 0, 0
+		if href, ok := links[i].URL(nil, nil).(url.RelativeURL); ok {
+			if f := byName[path.Clean("/"+href.Path())]; f != nil {
+				if rc, err := f.Open(); err == nil {
+					characters, pictures = countText(io.LimitReader(rc, maxPackageFileBytes))
+					rc.Close()
+				}
+			}
+		}
+		if links[i].Properties == nil {
+			links[i].Properties = manifest.Properties{}
+		}
+		links[i].Properties["tomeshelf:characters"] = characters
+		links[i].Properties["tomeshelf:pictures"] = pictures
+	}
+	return nil
 }
 
 // PackageFile returns the bytes of the file at path in the package of the

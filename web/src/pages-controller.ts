@@ -48,6 +48,10 @@ export type PagesController = {
   showEnd: () => void;
   // Forgets the turned spreads (a Repeated lines change).
   forget: () => void;
+  // The shown spread's first page in the document's current column flow,
+  // from 1, the document's pages up to its last line, and the pages a spread
+  // holds (ADR-0010 Page numbers). Reads the existing layout only.
+  spreadPages: () => { page: number; pages: number; perSpread: number };
 };
 
 export type PagesControllerOptions = {
@@ -64,8 +68,10 @@ export type PagesControllerOptions = {
   // has been aligned to a spread start (not restore or re-layout).
   onMove?: () => void;
   // Called after every re-layout, which can change atStart and atEnd
-  // without a scroll event.
-  onRelayout?: () => void;
+  // without a scroll event. bookWide is false when only this document
+  // reflowed (a late-loading picture), true when the window, a reading
+  // setting or a font changed every document's pages.
+  onRelayout?: (bookWide: boolean) => void;
 };
 
 const wheelQuietMs = 300;
@@ -167,6 +173,55 @@ function firstVisibleCharacter(article: HTMLElement): {
     }
   }
   return null;
+}
+
+// The horizontal offset, in the article's flow, of its last non-whitespace
+// character or last picture, whichever comes later; 0 when it has neither.
+function lastContentOffset(article: HTMLElement): number {
+  const origin = article.getBoundingClientRect().left - article.scrollLeft;
+  let offset = 0;
+  let deepest: Node = article;
+  while (deepest.lastChild) {
+    deepest = deepest.lastChild;
+  }
+  const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+  walker.currentNode = deepest;
+  const range = document.createRange();
+  for (
+    let node: Node | null =
+      deepest instanceof Text ? deepest : walker.previousNode();
+    node;
+    node = walker.previousNode()
+  ) {
+    const text = node as Text;
+    const i = text.data.search(/\S\s*$/);
+    if (i < 0) {
+      continue;
+    }
+    range.setStart(text, i);
+    range.setEnd(text, i + 1);
+    const rect = range.getClientRects()[0];
+    if (!rect || (rect.width === 0 && rect.height === 0)) {
+      continue;
+    }
+    // Text in a nested scroll area (a wide table, pre) overflows past its
+    // column; the area's own box is where it shows.
+    const area = text.parentElement?.closest("table, pre");
+    const box =
+      area && article.contains(area) ? area.getBoundingClientRect() : rect;
+    offset = box.left - origin;
+    break;
+  }
+  const media = article.querySelectorAll("img, svg, video");
+  for (let k = media.length - 1; k >= 0; k--) {
+    const rects = media[k].getClientRects();
+    const last = rects[rects.length - 1];
+    if (last && (last.width > 0 || last.height > 0)) {
+      offset = Math.max(offset, last.left - origin);
+      break;
+    }
+  }
+  return offset;
 }
 
 const startOf = (line: Line): SpreadStart =>
@@ -454,7 +509,7 @@ export function attachPagesController(
     return Math.abs(left - ownLeft) > 1 && !clamped;
   };
 
-  const relayout = (apply?: () => void) => {
+  const relayout = (apply?: () => void, bookWide = true) => {
     // A scroll that arrives in the same frame as a resize is kept: the line
     // holding its first visible character becomes the spread start.
     const ch = scrolledByOthers() ? firstVisibleCharacter(article) : null;
@@ -472,7 +527,7 @@ export function attachPagesController(
       show(toStart(lineHolding(point.node, point.offset)));
       queueMicrotask(() => onMove?.());
     }
-    onRelayout?.();
+    onRelayout?.(bookWide);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -576,7 +631,7 @@ export function attachPagesController(
     loadFrame = requestAnimationFrame(() => {
       // A scroll waiting to be aligned is aligned on the new layout.
       if (!alignPending) {
-        relayout();
+        relayout(undefined, false);
       }
     });
   };
@@ -609,7 +664,7 @@ export function attachPagesController(
       article.style.removeProperty("--reading-page-height");
       article.style.removeProperty("--reading-scroll-end");
     },
-    relayout,
+    relayout: (apply) => relayout(apply),
     turn: go,
     atStart,
     atEnd,
@@ -715,6 +770,12 @@ export function attachPagesController(
       }
     },
     forget: () => memory.clear(),
+    spreadPages: () => {
+      ensureMeasured();
+      const page = layout.column + 1;
+      const last = layout.columnAt(lastContentOffset(article)) + 1;
+      return { page, pages: Math.max(page, last), perSpread: pagesPerSpread };
+    },
   };
 }
 

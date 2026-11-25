@@ -5,6 +5,9 @@ export type Link = {
   type?: string;
   title?: string;
   children?: Link[];
+  // A reading-order link carries its document's text counts
+  // (tomeshelf:characters, tomeshelf:pictures; ADR-0010 Page numbers).
+  properties?: Record<string, unknown>;
 };
 
 export type Manifest = {
