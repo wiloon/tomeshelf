@@ -4,6 +4,7 @@ import {
   captureLocator,
   documentProgression,
   type Locator,
+  resolveClicked,
   resolveLocator,
 } from "./position";
 
@@ -505,6 +506,8 @@ test("in the pages layout a repeated quote is tied by where restoring it would s
     },
     "pages",
     {
+      clicked: () => null,
+      applyClicked: vi.fn(),
       progression: () => 0,
       progressionOf,
       prepareProgression,
@@ -517,4 +520,95 @@ test("in the pages layout a repeated quote is tied by where restoring it would s
   if (resolved?.kind === "character") {
     expect(resolved.node.parentElement?.id).toBe("b");
   }
+});
+
+function pointAt(content: HTMLElement, id: string, offset: number) {
+  const node = content.querySelector(`#${id}`)?.firstChild as Text;
+  return { node, offset };
+}
+
+test("a clicked character is stored with its block pair and its quote", () => {
+  const content = article(
+    `<p id="a">First line.</p><p id="b">Second line.</p>`,
+  );
+  layout(content, { "tomeshelf-content": [0, 400], a: [0, 40], b: [40, 40] });
+  const point = pointAt(content, "b", 7);
+  const locator = captureLocator(
+    content,
+    place.readingOrder[0].href,
+    "scroll",
+    undefined,
+    point,
+  );
+  expect(locator.clicked).toEqual({
+    cssSelector: '[data-tomeshelf-block="2"]',
+    characterOffset: 7,
+    text: { before: "First line.Second ", highlight: "line.", after: "" },
+  });
+  const without = captureLocator(content, place.readingOrder[0].href, "scroll");
+  expect(without.clicked).toBeUndefined();
+});
+
+test("a clicked character resolves by its quote, then by its block", () => {
+  const content = article(`<p id="a">One two.</p><p id="b">Three four.</p>`);
+  const href = place.readingOrder[0].href;
+  const byQuote = resolveClicked(content, {
+    href,
+    locations: { progression: 0 },
+    clicked: {
+      cssSelector: '[data-tomeshelf-block="1"]',
+      characterOffset: 0,
+      text: { before: "One two.", highlight: "Three four.", after: "" },
+    },
+  });
+  expect(byQuote?.node.parentElement?.id).toBe("b");
+  expect(byQuote?.offset).toBe(0);
+
+  const byBlock = resolveClicked(content, {
+    href,
+    locations: { progression: 0 },
+    clicked: {
+      cssSelector: '[data-tomeshelf-block="2"]',
+      characterOffset: 6,
+      text: { highlight: "gone from the book" },
+    },
+  });
+  expect(byBlock?.node.parentElement?.id).toBe("b");
+  expect(byBlock?.offset).toBe(6);
+
+  expect(
+    resolveClicked(content, {
+      href,
+      locations: { progression: 0 },
+      clicked: { text: { highlight: "nowhere" } },
+    }),
+  ).toBeNull();
+  expect(
+    resolveClicked(content, { href, locations: { progression: 0 } }),
+  ).toBeNull();
+});
+
+test("a repeated clicked quote goes to the nearer block, then to the spread start", () => {
+  const content = article(
+    `<p id="a">x</p><p id="b">same</p><p id="c">y</p><p id="d">same</p>`,
+  );
+  const href = place.readingOrder[0].href;
+  const clicked = (n: number) => ({
+    cssSelector: `[data-tomeshelf-block="${n}"]`,
+    characterOffset: 0,
+    text: { highlight: "same" },
+  });
+  const near = (n: number, from?: number) =>
+    resolveClicked(
+      content,
+      { href, locations: { progression: 0 }, clicked: clicked(n) },
+      from,
+    )?.node.parentElement?.id;
+  expect(near(4)).toBe("d");
+  expect(near(2)).toBe("b");
+  // Block 3 is as near to b as to d: the first at or after the spread start.
+  expect(near(3, 0)).toBe("b");
+  expect(near(3, 2)).toBe("d");
+  // Past the last occurrence: document order.
+  expect(near(3, 99)).toBe("b");
 });

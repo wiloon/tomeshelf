@@ -16,10 +16,19 @@ export type LocatorLocations = {
   characterOffset?: number;
 };
 
+// The last character the reader clicked or selected up to (ADR-0005 Clicked
+// character); pages layout only.
+export type LocatorClicked = {
+  cssSelector?: string;
+  characterOffset?: number;
+  text?: LocatorText;
+};
+
 export type Locator = {
   href: string;
   locations: LocatorLocations;
   text?: LocatorText;
+  clicked?: LocatorClicked;
 };
 
 export type ResolvedPosition =
@@ -218,30 +227,53 @@ function cssSelectorFor(block: Element): string {
   return `[data-tomeshelf-block="${block.getAttribute("data-tomeshelf-block")}"]`;
 }
 
+function clickedLocator(
+  content: HTMLElement,
+  point: { node: Text; offset: number },
+): LocatorClicked {
+  const clicked: LocatorClicked = {
+    text: quoteAround(content, point.node, point.offset),
+  };
+  const block = innermostBlock(point.node, content);
+  if (block) {
+    clicked.cssSelector = cssSelectorFor(block);
+    clicked.characterOffset = offsetWithin(block, point.node, point.offset);
+  }
+  return clicked;
+}
+
 // pagesProgression, when given, is the controller's measure of the shown
-// spread (1 when no line follows it, ADR-0005).
+// spread (1 when no line follows it, ADR-0005). clicked is the character the
+// reader last clicked, when there is one.
 export function captureLocator(
   content: HTMLElement,
   href: string,
   layout: Layout,
   pagesProgression?: number,
+  clicked?: { node: Text; offset: number } | null,
 ): Locator {
   const progression =
     layout === "pages" && pagesProgression !== undefined
       ? pagesProgression
       : documentProgression(content, layout);
   const anchor = firstVisibleCharacter(content, layout);
-  if (!anchor) {
-    return { href, locations: { progression } };
+  const locator: Locator = { href, locations: { progression } };
+  if (anchor) {
+    const block = innermostBlock(anchor.node, content);
+    locator.text = quoteAround(content, anchor.node, anchor.offset);
+    if (block) {
+      locator.locations.cssSelector = cssSelectorFor(block);
+      locator.locations.characterOffset = offsetWithin(
+        block,
+        anchor.node,
+        anchor.offset,
+      );
+    }
   }
-  const block = innermostBlock(anchor.node, content);
-  const text = quoteAround(content, anchor.node, anchor.offset);
-  const locations: LocatorLocations = { progression };
-  if (block) {
-    locations.cssSelector = cssSelectorFor(block);
-    locations.characterOffset = offsetWithin(block, anchor.node, anchor.offset);
+  if (clicked) {
+    locator.clicked = clickedLocator(content, clicked);
   }
-  return { href, locations, text };
+  return locator;
 }
 
 type Occurrence = {
@@ -379,9 +411,9 @@ function resolveQuote(
 
 function resolveBlock(
   content: HTMLElement,
-  locator: Locator,
+  cssSelector: string | undefined,
+  characterOffset: number | undefined,
 ): ResolvedPosition | null {
-  const { cssSelector, characterOffset } = locator.locations;
   if (cssSelector === undefined || characterOffset === undefined) {
     return null;
   }
@@ -415,7 +447,11 @@ export function resolveLocator(
   }
   return (
     resolveQuote(content, locator, layout, pages) ??
-    resolveBlock(content, locator) ??
+    resolveBlock(
+      content,
+      locator.locations.cssSelector,
+      locator.locations.characterOffset,
+    ) ??
     (locator.locations.progression !== undefined
       ? {
           kind: "progression" as const,
@@ -425,7 +461,58 @@ export function resolveLocator(
   );
 }
 
+// The clicked character of a Locator in the article: by its quote, then by its
+// block and offset (ADR-0005). A repeated quote goes to the nearest block, then
+// to the first occurrence at or after `from` (the restored spread start, as an
+// offset into the article's text), then to document order. null when it does
+// not resolve.
+export function resolveClicked(
+  content: HTMLElement,
+  locator: Locator,
+  from?: number,
+): { node: Text; offset: number } | null {
+  const clicked = locator.clicked;
+  if (!clicked) {
+    return null;
+  }
+  const occurrences = clicked.text
+    ? findQuoteOccurrences(content, clicked.text)
+    : [];
+  if (occurrences.length > 0) {
+    const stored = parseBlockNumber(clicked.cssSelector);
+    const dist = (occ: Occurrence) => {
+      const n = blockNumber(occ.block);
+      return stored === null
+        ? 0
+        : n === null
+          ? Number.POSITIVE_INFINITY
+          : Math.abs(n - stored);
+    };
+    const nearest = Math.min(...occurrences.map(dist));
+    const tied = occurrences.filter((occ) => dist(occ) === nearest);
+    const picked =
+      (from === undefined
+        ? undefined
+        : tied.find(
+            (occ) => offsetWithin(content, occ.node, occ.offset) >= from,
+          )) ?? tied[0];
+    return { node: picked.node, offset: picked.offset };
+  }
+  const byBlock = resolveBlock(
+    content,
+    clicked.cssSelector,
+    clicked.characterOffset,
+  );
+  return byBlock?.kind === "character"
+    ? { node: byBlock.node, offset: byBlock.offset }
+    : null;
+}
+
 export type PagesRestore = {
+  // The clicked character, when there is one.
+  clicked: () => { node: Text; offset: number } | null;
+  // Applies a clicked character by the re-layout rule (ADR-0010).
+  applyClicked: (node: Text, offset: number) => void;
   // The shown spread's progression; 1 when no line follows it.
   progression: () => number;
   // Extends the final spread so progression measures are stable (ADR-0005).
@@ -465,4 +552,27 @@ export function applyResolvedPosition(
     top: scrollYForProgression(content, resolved.progression),
     behavior: "instant",
   });
+}
+
+// Applies the Locator's clicked character after its spread start was shown
+// (ADR-0010 Restoring). A clicked character that does not resolve is dropped.
+// Only the pages layout holds one.
+export function applyClickedPosition(
+  content: HTMLElement,
+  locator: Locator,
+  layout: Layout,
+  pages?: PagesRestore,
+): void {
+  if (layout !== "pages" || !pages || !locator.clicked) {
+    return;
+  }
+  const start = firstVisibleCharacter(content, "pages");
+  const point = resolveClicked(
+    content,
+    locator,
+    start ? offsetWithin(content, start.node, start.offset) : undefined,
+  );
+  if (point) {
+    pages.applyClicked(point.node, point.offset);
+  }
 }

@@ -48,6 +48,11 @@ export type PagesController = {
   showEnd: () => void;
   // Forgets the turned spreads (a Repeated lines change).
   forget: () => void;
+  // The clicked character (ADR-0005), when there is one.
+  clicked: () => { node: Text; offset: number } | null;
+  // Holds the character as the clicked character and shows the spread the
+  // re-layout rule gives (ADR-0010 Re-layout), as a restore does.
+  applyClicked: (node: Text, offset: number) => void;
   // The shown spread's first page in the document's current column flow,
   // from 1, the document's pages up to its last line, and the pages a spread
   // holds (ADR-0010 Page numbers). Reads the existing layout only.
@@ -252,6 +257,9 @@ export function attachPagesController(
   let touchOwner: "page" | "nested" | null = null;
   let alignTimer = 0;
   let alignPending = false;
+  // The clicked character as an offset into the article's text: the marker
+  // splits and merges text nodes, so no node is kept (ADR-0005).
+  let clicked: number | null = null;
   const memory = new SpreadMemory<SpreadStart | null>();
   const layout = createSpreadLayout(article, () => ({
     colStep,
@@ -427,6 +435,7 @@ export function attachPagesController(
         }
       }
     }
+    clicked = null;
     queueMicrotask(() => onMove?.());
     return true;
   };
@@ -450,6 +459,64 @@ export function attachPagesController(
       }
     }
     return found;
+  };
+
+  const onSpread = (line: Line) =>
+    line.col >= layout.column && line.col < layout.column + pagesPerSpread;
+
+  // The line `count` lines before the line, or the document's first line.
+  const linesBack = (line: Line, count: number): Line => {
+    if (count <= 0) {
+      return line;
+    }
+    let from = line.col;
+    for (;;) {
+      const before = layout
+        .lines(from, line.col)
+        .filter((l) => l.start < line.start);
+      if (before.length >= count) {
+        return before[before.length - count];
+      }
+      if (from === 0) {
+        return before[0] ?? line;
+      }
+      from = Math.max(0, line.col - 2 * (line.col - from + 1));
+    }
+  };
+
+  // Keeps the clicked line on the shown spread (ADR-0010 Re-layout): when it
+  // is not there, the spread start moves to the line Repeated lines lines
+  // before it, then steps forward while a block that cannot split keeps the
+  // clicked line off the spread.
+  const followClicked = () => {
+    if (clicked === null) {
+      return;
+    }
+    const point = layout.textPoint(clicked);
+    const line = point ? lineHolding(point.node, point.offset) : null;
+    if (!point || !line) {
+      clicked = null;
+      return;
+    }
+    if (onSpread(line)) {
+      return;
+    }
+    const target = linesBack(line, options.repeatedLines());
+    show(toStart(target));
+    for (let steps = 0; steps < 1000; steps++) {
+      const now = lineHolding(point.node, point.offset);
+      const key = current?.key ?? Number.NEGATIVE_INFINITY;
+      if (!now || onSpread(now) || key >= line.start) {
+        return;
+      }
+      const next = layout
+        .lines(layout.column, Number.POSITIVE_INFINITY, 3)
+        .find((l) => l.start > key);
+      if (!next || next.start > line.start) {
+        return;
+      }
+      show(toStart(next));
+    }
   };
 
   // After a scroll the reader did not make, the line holding the first
@@ -480,6 +547,7 @@ export function attachPagesController(
       layout.clearScrollEnd();
     }
     memory.clear();
+    clicked = null;
     show(start);
     queueMicrotask(() => onMove?.());
   };
@@ -524,10 +592,163 @@ export function attachPagesController(
     if (point) {
       window.clearTimeout(alignTimer);
       alignPending = false;
+      clicked = null;
       show(toStart(lineHolding(point.node, point.offset)));
       queueMicrotask(() => onMove?.());
+    } else {
+      followClicked();
     }
     onRelayout?.(bookWide);
+  };
+
+  // The last non-whitespace character of a selection inside the article.
+  const selectedLast = (
+    range: Range,
+  ): { node: Text; offset: number } | null => {
+    if (
+      !article.contains(range.startContainer) ||
+      !article.contains(range.endContainer)
+    ) {
+      return null;
+    }
+    let found: { node: Text; offset: number } | null = null;
+    const walker = document.createTreeWalker(
+      range.commonAncestorContainer,
+      NodeFilter.SHOW_TEXT,
+    );
+    const nodes: Text[] = [];
+    if (range.commonAncestorContainer instanceof Text) {
+      nodes.push(range.commonAncestorContainer);
+    }
+    for (
+      let node = walker.nextNode() as Text | null;
+      node;
+      node = walker.nextNode() as Text | null
+    ) {
+      if (range.intersectsNode(node)) {
+        nodes.push(node);
+      }
+    }
+    for (const node of nodes) {
+      const start = node === range.startContainer ? range.startOffset : 0;
+      const end = node === range.endContainer ? range.endOffset : node.length;
+      const i = node.data.slice(start, end).search(/\S\s*$/);
+      if (i >= 0) {
+        found = { node, offset: start + i };
+      }
+    }
+    return found;
+  };
+
+  // The non-whitespace character on the line at the pointer, nearest to it.
+  const characterAt = (x: number, y: number) => {
+    const doc = document as Document & {
+      caretPositionFromPoint?: (
+        x: number,
+        y: number,
+      ) => { offsetNode: Node; offset: number } | null;
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    };
+    let caret: { node: Node; offset: number } | null = null;
+    if (doc.caretPositionFromPoint) {
+      const p = doc.caretPositionFromPoint(x, y);
+      caret = p ? { node: p.offsetNode, offset: p.offset } : null;
+    } else if (doc.caretRangeFromPoint) {
+      const r = doc.caretRangeFromPoint(x, y);
+      caret = r ? { node: r.startContainer, offset: r.startOffset } : null;
+    }
+    if (
+      !caret ||
+      !(caret.node instanceof Text) ||
+      !article.contains(caret.node)
+    ) {
+      return null;
+    }
+    const { node, offset } = caret;
+    const range = document.createRange();
+    let best: { offset: number; gap: number } | null = null;
+    const candidates = [
+      node.data.slice(0, offset).search(/\S\s*$/),
+      offset + node.data.slice(offset).search(/\S/),
+    ];
+    if (node.data.slice(offset).search(/\S/) < 0) {
+      candidates.pop();
+    }
+    for (const i of candidates) {
+      if (i < 0) {
+        continue;
+      }
+      range.setStart(node, i);
+      range.setEnd(node, i + 1);
+      const r = range.getBoundingClientRect();
+      if (y < r.top || y > r.bottom) {
+        continue;
+      }
+      const gap = Math.max(r.left - x, x - r.right, 0);
+      if (!best || gap < best.gap) {
+        best = { offset: i, gap };
+      }
+    }
+    return best ? { node, offset: best.offset } : null;
+  };
+
+  // A click or a selection that stores a clicked character is a move.
+  const hold = (point: { node: Text; offset: number } | null) => {
+    if (!point) {
+      return;
+    }
+    const line = lineHolding(point.node, point.offset);
+    if (!line || !onSpread(line)) {
+      return;
+    }
+    const key = layout.keyOf(point.node, point.offset);
+    if (key === clicked) {
+      return;
+    }
+    clicked = key;
+    onMove?.();
+  };
+
+  // A press that may still become a click (ADR-0005 Capture).
+  let press: { id: number; x: number; y: number } | null = null;
+  const plain = (e: PointerEvent) =>
+    e.button === 0 && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
+
+  const onPointerDown = (event: PointerEvent) => {
+    press =
+      event.isPrimary && plain(event)
+        ? { id: event.pointerId, x: event.clientX, y: event.clientY }
+        : null;
+  };
+
+  const onPointerUp = (event: PointerEvent) => {
+    const down = press;
+    press = null;
+    if (!down || down.id !== event.pointerId || !plain(event)) {
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof Element) || !article.contains(target)) {
+      return;
+    }
+    settle();
+    ensureMeasured();
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
+      hold(selectedLast(selection.getRangeAt(0)));
+      return;
+    }
+    if (
+      Math.hypot(event.clientX - down.x, event.clientY - down.y) > 5 ||
+      target.closest("a[href], input, select, textarea, button")
+    ) {
+      return;
+    }
+    hold(characterAt(event.clientX, event.clientY));
+  };
+
+  const onPointerCancel = () => {
+    press = null;
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -645,6 +866,11 @@ export function attachPagesController(
   article.addEventListener("touchmove", onTouchMove, { passive: false });
   article.addEventListener("touchend", onTouchEnd, { passive: true });
   article.addEventListener("scroll", onScroll, { passive: true });
+  // The capture phase on the document, so a page that stops propagation on
+  // the article (a lookup extension) cannot hide a click.
+  document.addEventListener("pointerdown", onPointerDown, true);
+  document.addEventListener("pointerup", onPointerUp, true);
+  document.addEventListener("pointercancel", onPointerCancel, true);
 
   return {
     destroy: () => {
@@ -655,6 +881,9 @@ export function attachPagesController(
       article.removeEventListener("touchend", onTouchEnd);
       article.removeEventListener("scroll", onScroll);
       article.removeEventListener("load", onLoad, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
       cancelAnimationFrame(loadFrame);
       window.clearTimeout(alignTimer);
       layout.removeMarker();
@@ -707,6 +936,7 @@ export function attachPagesController(
     showElement: (el) => {
       ensureMeasured();
       memory.clear();
+      clicked = null;
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       let text = walker.nextNode() as Text | null;
       while (text && text.data.trim() === "") {
@@ -755,6 +985,7 @@ export function attachPagesController(
     showEnd: () => {
       ensureMeasured();
       memory.clear();
+      clicked = null;
       show(null);
       // The last line, found from the last column back past any blank ones.
       let last: Line | null = null;
@@ -770,6 +1001,16 @@ export function attachPagesController(
       }
     },
     forget: () => memory.clear(),
+    clicked: () => {
+      const point = clicked === null ? null : layout.textPoint(clicked);
+      return point;
+    },
+    applyClicked: (node, offset) => {
+      ensureMeasured();
+      memory.clear();
+      clicked = layout.keyOf(node, offset);
+      followClicked();
+    },
     spreadPages: () => {
       ensureMeasured();
       const page = layout.column + 1;

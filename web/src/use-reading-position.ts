@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { contentId } from "./navigator";
 import {
+  applyClickedPosition,
   applyResolvedPosition,
   captureLocator,
   type Locator,
@@ -53,7 +54,9 @@ export function useReadingPosition({
     ignoreScrollY.current = window.scrollY;
   }, []);
 
-  const capture = useCallback((): Locator | null => {
+  // carryClicked keeps the held clicked character through a capture that is
+  // not the reader moving (ADR-0005): the scroll layout has none of its own.
+  const capture = useCallback((carryClicked = false): Locator | null => {
     const content = contentEl();
     if (!content) {
       return null;
@@ -62,12 +65,18 @@ export function useReadingPosition({
     // start's marker and set the scroll end (ADR-0005).
     const pages =
       layoutRef.current === "pages" ? pagesRestoreRef.current() : null;
-    return captureLocator(
+    const locator = captureLocator(
       content,
       hrefRef.current,
       layoutRef.current,
       pages?.progression(),
+      pages?.clicked(),
     );
+    const held = activeLocator.current?.clicked;
+    if (carryClicked && layoutRef.current !== "pages" && held) {
+      locator.clicked = held;
+    }
+    return locator;
   }, []);
 
   const schedule = useCallback(
@@ -106,6 +115,12 @@ export function useReadingPosition({
           pagesRestoreRef.current() ?? undefined,
         );
       }
+      applyClickedPosition(
+        content,
+        locator,
+        layoutRef.current,
+        pagesRestoreRef.current() ?? undefined,
+      );
       markProgrammatic();
       restoring.current = false;
     },
@@ -124,7 +139,7 @@ export function useReadingPosition({
   );
 
   const syncLocator = useCallback(() => {
-    const locator = capture();
+    const locator = capture(true);
     if (locator && activeLocator.current) {
       activeLocator.current = locator;
     }
@@ -151,6 +166,12 @@ export function useReadingPosition({
         pagesRestoreRef.current() ?? undefined,
       );
     }
+    applyClickedPosition(
+      content,
+      locator,
+      layoutRef.current,
+      pagesRestoreRef.current() ?? undefined,
+    );
     markProgrammatic();
     restoring.current = false;
     return true;
@@ -255,7 +276,7 @@ export function useReadingPosition({
       if (!moved.current) {
         return;
       }
-      const locator = capture() ?? activeLocator.current;
+      const locator = capture(true) ?? activeLocator.current;
       if (locator) {
         queue.change(bookIdRef.current, locator);
       }

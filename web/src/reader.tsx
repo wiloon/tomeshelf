@@ -667,6 +667,8 @@ export function ReaderPage() {
       return null;
     }
     return {
+      clicked: () => controller.clicked(),
+      applyClicked: (node, offset) => controller.applyClicked(node, offset),
       progression: () => controller.progression(),
       progressionOf: (node, offset) => controller.progressionOf(node, offset),
       prepareProgression: () => controller.prepareProgression(),

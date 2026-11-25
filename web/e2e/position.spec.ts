@@ -1666,3 +1666,173 @@ test("a repeated quote resumes at the spread start Next showed", async ({
       .toBe(moved);
   }
 });
+
+type SavedBody = {
+  clicked?: {
+    cssSelector?: string;
+    characterOffset?: number;
+    text?: { highlight?: string };
+  };
+};
+
+// The centre of a letter on the shown spread: from the page's nth text line
+// (0-based) on the left or the right page.
+async function wordOn(page: Page, side: "left" | "right", line: number) {
+  return article(page).evaluate(
+    (el, args) => {
+      const box = el.getBoundingClientRect();
+      const mid = box.left + box.width / 2;
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      const range = document.createRange();
+      const tops: number[] = [];
+      for (
+        let node = walker.nextNode() as Text | null;
+        node;
+        node = walker.nextNode() as Text | null
+      ) {
+        for (let i = 0; i < node.length; i++) {
+          if (!/[a-z]/i.test(node.data[i])) continue;
+          range.setStart(node, i);
+          range.setEnd(node, i + 1);
+          const r = range.getBoundingClientRect();
+          const onSide = args.side === "left" ? r.right < mid : r.left > mid;
+          if (!onSide || r.left < box.left || r.right > box.right) continue;
+          if (r.top < box.top || r.bottom > box.bottom) continue;
+          if (!tops.some((t) => Math.abs(t - r.top) < 2)) tops.push(r.top);
+          if (
+            tops.length - 1 === args.line &&
+            Math.abs(tops[args.line] - r.top) < 2
+          ) {
+            return {
+              x: r.left + r.width / 2,
+              y: r.top + r.height / 2,
+              letter: node.data[i],
+            };
+          }
+        }
+      }
+      return null;
+    },
+    { side, line },
+  );
+}
+
+test("pages layout: clicking a word on the right page saves it as the clicked character", async ({
+  page,
+}) => {
+  await setUp(page, "pages");
+  await importChapters(page);
+  await openFromLibrary(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const puts = positionPuts(page);
+  const word = await wordOn(page, "right", 2);
+  expect(word).not.toBeNull();
+  if (!word) return;
+  const before = await article(page).evaluate((el) => el.textContent);
+
+  await page.mouse.click(word.x, word.y);
+  await expect.poll(() => puts.length).toBe(1);
+  const body = puts[0].postDataJSON() as SavedBody;
+  expect(body.clicked?.text?.highlight?.[0]).toBe(word.letter);
+  expect(body.clicked?.cssSelector).toMatch(/^\[data-tomeshelf-block="\d+"\]$/);
+  expect(body.clicked?.characterOffset).toBeGreaterThanOrEqual(0);
+  // The click turned no spread and changed no text.
+  expect(await article(page).evaluate((el) => el.scrollLeft)).toBe(0);
+  expect(await article(page).evaluate((el) => el.textContent)).toBe(before);
+
+  // The same character again saves nothing new.
+  await page.mouse.click(word.x, word.y);
+  await page.waitForTimeout(900);
+  expect(puts.length).toBe(1);
+
+  // A word on the left page is a different character.
+  const left = await wordOn(page, "left", 1);
+  if (!left) throw new Error("no word on the left page");
+  await page.mouse.click(left.x, left.y);
+  await expect.poll(() => puts.length).toBe(2);
+  const second = puts[1].postDataJSON() as SavedBody;
+  expect(second.clicked?.text?.highlight?.[0]).toBe(left.letter);
+  expect(second.clicked?.characterOffset).not.toBe(
+    body.clicked?.characterOffset,
+  );
+});
+
+test("pages layout: a click on a link or with a modifier stores nothing, and a turn clears it", async ({
+  page,
+}) => {
+  await setUp(page, "pages");
+  await importChapters(page);
+  await openFromLibrary(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const puts = positionPuts(page);
+  const word = await wordOn(page, "left", 1);
+  if (!word) throw new Error("no word on the left page");
+
+  await page.keyboard.down("Shift");
+  await page.mouse.click(word.x, word.y);
+  await page.keyboard.up("Shift");
+  await page.mouse.click(word.x, word.y, { button: "right" });
+  await page.waitForTimeout(900);
+  expect(puts.length).toBe(0);
+
+  await page.mouse.click(word.x, word.y);
+  await expect.poll(() => puts.length).toBe(1);
+  await page.keyboard.press("ArrowRight");
+  await expect.poll(() => puts.length).toBe(2);
+  expect((puts[1].postDataJSON() as SavedBody).clicked).toBeUndefined();
+});
+
+test("pages layout: a two-page to one-page resize keeps the clicked right-page line and saves nothing", async ({
+  page,
+}) => {
+  await setUp(page, "pages");
+  await importChapters(page);
+  await openFromLibrary(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const word = await wordOn(page, "right", 3);
+  if (!word) throw new Error("no word on the right page");
+  const puts = positionPuts(page);
+  await page.mouse.click(word.x, word.y);
+  await expect.poll(() => puts.length).toBe(1);
+  const clicked = (puts[0].postDataJSON() as SavedBody).clicked;
+
+  await page.setViewportSize({ width: 700, height: 800 });
+  await page.evaluate(
+    () =>
+      new Promise((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(done)),
+      ),
+  );
+  const shown = await article(page).evaluate(
+    (el, at) => {
+      const block = el.querySelector(at.selector);
+      if (!block) return false;
+      const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+      let left = at.offset;
+      for (
+        let node = walker.nextNode() as Text | null;
+        node;
+        node = walker.nextNode() as Text | null
+      ) {
+        if (left >= node.length) {
+          left -= node.length;
+          continue;
+        }
+        const range = document.createRange();
+        range.setStart(node, left);
+        range.setEnd(node, left + 1);
+        const r = range.getBoundingClientRect();
+        const box = el.getBoundingClientRect();
+        return r.left >= box.left - 1 && r.right <= box.right + 1;
+      }
+      return false;
+    },
+    {
+      selector: clicked?.cssSelector ?? "",
+      offset: clicked?.characterOffset ?? 0,
+    },
+  );
+  expect(shown).toBe(true);
+  await page.waitForTimeout(900);
+  expect(puts.length).toBe(1);
+});
