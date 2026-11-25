@@ -841,12 +841,10 @@ export function attachPagesController(
     press = null;
   };
 
-  // Clicks are taken in the capture phase on the document, so an extension
-  // that stops a click on the text or prevents its default (a word lookup)
-  // does not hide it (issue #129).
-  const onClick = (event: MouseEvent) => {
-    const start = press;
-    press = null;
+  // The element a plain primary click or release landed on, when it is the
+  // article, inside it, or one of the reader's own elements around it; not
+  // anything placed over them (an extension's popup, a dialog).
+  const readingTarget = (event: MouseEvent): Element | null => {
     if (
       event.button !== 0 ||
       event.ctrlKey ||
@@ -854,7 +852,7 @@ export function attachPagesController(
       event.metaKey ||
       event.shiftKey
     ) {
-      return;
+      return null;
     }
     const target =
       event.target instanceof Element
@@ -862,18 +860,37 @@ export function attachPagesController(
         : event.target instanceof Node
           ? event.target.parentElement
           : null;
-    // Only the article and the reader's own elements around it count, not
-    // anything placed over them (an extension's popup, a dialog).
-    if (!target || !(article.contains(target) || target.contains(article))) {
+    return target && (article.contains(target) || target.contains(article))
+      ? target
+      : null;
+  };
+
+  // A selection marks its last character; true when there is one, whether
+  // or not it marks anything.
+  const takeSelection = (): boolean => {
+    const selected = selectionPoint();
+    if (selected === undefined) {
+      return false;
+    }
+    if (selected) {
+      setClicked(selected);
+    }
+    return true;
+  };
+
+  // Clicks are taken in the capture phase on the document, so an extension
+  // that stops a click on the text or prevents its default (a word lookup)
+  // does not hide it (issue #129).
+  const onClick = (event: MouseEvent) => {
+    const start = press;
+    press = null;
+    const target = readingTarget(event);
+    if (!target) {
       return;
     }
     settle();
     ensureMeasured();
-    const selected = selectionPoint();
-    if (selected !== undefined) {
-      if (selected) {
-        setClicked(selected);
-      }
+    if (takeSelection()) {
       return;
     }
     if (
