@@ -68,6 +68,10 @@ _Avoid_: Paragraph (too narrow), node
 Where the user last was in a book, kept by Tomeshelf for that user so the book reopens there.
 _Avoid_: Bookmark (a deliberate mark), progress (a percentage only)
 
+**Reading mark**:
+The arrow in the margin beside the line of the reading position: the line the user last clicked or selected on the spread, or else the spread start.
+_Avoid_: Bookmark, cursor, caret
+
 **Locator**:
 The record that describes a reading position in several redundant ways, so it survives when one way fails.
 _Avoid_: CFI, anchor
