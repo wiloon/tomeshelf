@@ -270,3 +270,64 @@ test("the book's own contract markup never survives", async ({ page }) => {
     );
   }
 });
+
+// The reading mark (ADR-0010) is drawn outside the article: clicking the
+// text moves it without touching the article's text or block numbers.
+test("the reading mark stays outside the article, hidden from assistive technology and from pointers", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const setup = await page.request.post("/api/setup", {
+    data: { username: "reader", password: "reader password" },
+  });
+  expect(setup.status()).toBe(201);
+  const settings = await page.request.put("/api/settings", {
+    data: {
+      fontSize: 18,
+      lineHeight: 1.6,
+      width: 38,
+      theme: "light",
+      layout: "pages",
+      font: "default",
+      wheelTurnsPages: true,
+      repeatedLines: 1,
+    },
+  });
+  expect(settings.status()).toBe(204);
+  await page.goto("/");
+  await importBook(
+    page,
+    "clicked-line.epub",
+    "A Hand-Made Book of Clicked Lines",
+  );
+  await chooseBook(page, "A Hand-Made Book of Clicked Lines", "Clicked Lines");
+
+  const snapshot = () =>
+    article(page).evaluate((el) => ({
+      text: el.textContent,
+      blocks: [...el.querySelectorAll("[data-tomeshelf-block]")].map((b) =>
+        b.getAttribute("data-tomeshelf-block"),
+      ),
+    }));
+  const before = await snapshot();
+  const word = await article(page).evaluate((el) => {
+    const n = el.querySelector("#opening")?.firstChild as Text;
+    const range = document.createRange();
+    const i = n.data.indexOf("K002");
+    range.setStart(n, i);
+    range.setEnd(n, i + 1);
+    const r = range.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.click(word.x, word.y);
+
+  const readingMark = page.locator("[data-tomeshelf-reading-mark]");
+  await expect(readingMark).toBeVisible();
+  await expect(readingMark).toHaveCount(1);
+  await expect(
+    article(page).locator("[data-tomeshelf-reading-mark]"),
+  ).toHaveCount(0);
+  await expect(readingMark).toHaveAttribute("aria-hidden", "true");
+  await expect(readingMark).toHaveCSS("pointer-events", "none");
+  expect(await snapshot()).toEqual(before);
+});

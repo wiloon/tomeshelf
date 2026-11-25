@@ -16,11 +16,24 @@ export type LocatorLocations = {
   characterOffset?: number;
 };
 
+// The character the user last clicked or selected on the spread, in the
+// pages layout (ADR-0005 Clicked character): its block and offset, its
+// quote, or both. It has no progression of its own.
+export type LocatorClicked = {
+  cssSelector?: string;
+  characterOffset?: number;
+  text?: LocatorText;
+};
+
 export type Locator = {
   href: string;
   locations: LocatorLocations;
   text?: LocatorText;
+  clicked?: LocatorClicked;
 };
+
+// A character in the rendered article.
+export type CharacterPoint = { node: Text; offset: number };
 
 export type ResolvedPosition =
   | { kind: "character"; node: Text; offset: number }
@@ -218,9 +231,39 @@ function cssSelectorFor(block: Element): string {
   return `[data-tomeshelf-block="${block.getAttribute("data-tomeshelf-block")}"]`;
 }
 
+// The clicked character's block, offset and quote, measured like the anchor.
+function describeClicked(
+  content: HTMLElement,
+  point: CharacterPoint,
+): LocatorClicked {
+  const block = innermostBlock(point.node, content);
+  const clicked: LocatorClicked = {};
+  if (block) {
+    clicked.cssSelector = cssSelectorFor(block);
+    clicked.characterOffset = offsetWithin(block, point.node, point.offset);
+  }
+  clicked.text = quoteAround(content, point.node, point.offset);
+  return clicked;
+}
+
 // pagesProgression, when given, is the controller's measure of the shown
-// spread (1 when no line follows it, ADR-0005).
+// spread (1 when no line follows it, ADR-0005). clicked is the pages
+// layout's clicked character, if any.
 export function captureLocator(
+  content: HTMLElement,
+  href: string,
+  layout: Layout,
+  pagesProgression?: number,
+  clicked?: CharacterPoint | null,
+): Locator {
+  const locator = captureAnchor(content, href, layout, pagesProgression);
+  if (layout === "pages" && clicked) {
+    locator.clicked = describeClicked(content, clicked);
+  }
+  return locator;
+}
+
+function captureAnchor(
   content: HTMLElement,
   href: string,
   layout: Layout,
@@ -403,6 +446,69 @@ function resolveBlock(
   return { kind: "character", node: at.node, offset: at.offset };
 }
 
+// Resolves a Locator's clicked character (ADR-0005 Clicked character): by
+// its quote, then by its block and offset. A repeated quote picks the
+// occurrence fewest block numbers from the stored block, then the first at or
+// after the restored spread start, then the first in document order. The
+// spread start is an offset into the article's text, which the spread start
+// marker never changes; null when no spread was restored. null when there is
+// none or it does not resolve.
+export function resolveClicked(
+  content: HTMLElement,
+  locator: Locator,
+  spreadStart: number | null,
+): CharacterPoint | null {
+  const clicked = locator.clicked;
+  if (!clicked) {
+    return null;
+  }
+  const occurrences = clicked.text
+    ? findQuoteOccurrences(content, clicked.text)
+    : [];
+  if (occurrences.length > 0) {
+    const storedBlock = parseBlockNumber(clicked.cssSelector);
+    const distance = (occ: Occurrence) => {
+      if (storedBlock === null) {
+        return 0;
+      }
+      const n = blockNumber(occ.block);
+      return n === null ? Number.POSITIVE_INFINITY : Math.abs(n - storedBlock);
+    };
+    const nearest = Math.min(...occurrences.map(distance));
+    const tied = occurrences.filter((occ) => distance(occ) === nearest);
+    const atOrAfterStart =
+      spreadStart === null
+        ? undefined
+        : tied.find((occ) => textKey(content, occ) >= spreadStart);
+    const picked = atOrAfterStart ?? tied[0];
+    return { node: picked.node, offset: picked.offset };
+  }
+  const byBlock = resolveBlock(content, {
+    href: locator.href,
+    locations: {
+      progression: 0,
+      cssSelector: clicked.cssSelector,
+      characterOffset: clicked.characterOffset,
+    },
+  });
+  return byBlock?.kind === "character"
+    ? { node: byBlock.node, offset: byBlock.offset }
+    : null;
+}
+
+// The offset of a character into the article's text.
+function textKey(content: HTMLElement, point: CharacterPoint): number {
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  let key = 0;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n === point.node) {
+      return key + point.offset;
+    }
+    key += (n as Text).length;
+  }
+  return key;
+}
+
 export function resolveLocator(
   content: HTMLElement,
   locator: Locator,
@@ -425,6 +531,30 @@ export function resolveLocator(
   );
 }
 
+// Restores a Locator: the spread start first, then, in the pages layout, its
+// clicked character, which keeps its line on the spread (ADR-0005).
+export function applyLocator(
+  content: HTMLElement,
+  locator: Locator,
+  layout: Layout,
+  pages?: PagesRestore,
+): void {
+  const resolved = resolveLocator(content, locator, layout, pages);
+  if (resolved) {
+    applyResolvedPosition(content, resolved, layout, pages);
+  }
+  if (layout !== "pages" || !pages) {
+    return;
+  }
+  // The spread start the reader now shows, whether the anchor resolved by
+  // character or by progression.
+  const start = resolved ? pages.spreadStartKey() : null;
+  const clicked = resolveClicked(content, locator, start);
+  if (clicked) {
+    pages.applyClicked(clicked.node, clicked.offset);
+  }
+}
+
 export type PagesRestore = {
   // The shown spread's progression; 1 when no line follows it.
   progression: () => number;
@@ -435,6 +565,12 @@ export type PagesRestore = {
   // Shows the spread holding the character.
   showCharacter: (node: Text, offset: number) => void;
   showProgression: (progression: number) => void;
+  // The clicked character (ADR-0005 Clicked character), or null.
+  clicked: () => CharacterPoint | null;
+  // Makes the character the clicked one and keeps its line on the spread.
+  applyClicked: (node: Text, offset: number) => void;
+  // The shown spread start as an offset into the article's text.
+  spreadStartKey: () => number;
 };
 
 // Scrolls so the resolved character sits at the top of the viewport (scroll)

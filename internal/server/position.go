@@ -23,10 +23,20 @@ type textJSON struct {
 	After     *string `json:"after,omitempty"`
 }
 
+// clickedJSON is the character the user last clicked or selected on the
+// spread (ADR-0005 Clicked character): its block and offset, its quote, or
+// both.
+type clickedJSON struct {
+	CSSSelector     *string   `json:"cssSelector,omitempty"`
+	CharacterOffset *int64    `json:"characterOffset,omitempty"`
+	Text            *textJSON `json:"text,omitempty"`
+}
+
 type locatorJSON struct {
 	Href      string         `json:"href"`
 	Locations *locationsJSON `json:"locations"`
 	Text      *textJSON      `json:"text,omitempty"`
+	Clicked   *clickedJSON   `json:"clicked,omitempty"`
 }
 
 type savePositionJSON struct {
@@ -35,6 +45,40 @@ type savePositionJSON struct {
 	Href      string         `json:"href"`
 	Locations *locationsJSON `json:"locations"`
 	Text      *textJSON      `json:"text,omitempty"`
+	Clicked   *clickedJSON   `json:"clicked,omitempty"`
+}
+
+// validClicked reports whether a clicked character locates something: a
+// block selector with a character offset, both or neither, and a quote with a
+// highlight when it has one.
+func validClicked(c *clickedJSON) bool {
+	hasSelector, hasOffset := c.CSSSelector != nil, c.CharacterOffset != nil
+	if hasSelector != hasOffset {
+		return false
+	}
+	if hasSelector && (*c.CSSSelector == "" || *c.CharacterOffset < 0) {
+		return false
+	}
+	if c.Text != nil && (c.Text.Highlight == nil || *c.Text.Highlight == "") {
+		return false
+	}
+	return hasSelector || c.Text != nil
+}
+
+func toClicked(c *clickedJSON) *store.ClickedCharacter {
+	if c == nil {
+		return nil
+	}
+	out := &store.ClickedCharacter{
+		CSSSelector:     c.CSSSelector,
+		CharacterOffset: c.CharacterOffset,
+	}
+	if c.Text != nil {
+		out.TextBefore = c.Text.Before
+		out.TextHighlight = c.Text.Highlight
+		out.TextAfter = c.Text.After
+	}
+	return out
 }
 
 func toLocatorJSON(p store.ReadingPosition) locatorJSON {
@@ -45,6 +89,12 @@ func toLocatorJSON(p store.ReadingPosition) locatorJSON {
 		CharacterOffset:  p.CharacterOffset,
 	}
 	out := locatorJSON{Href: p.Href, Locations: loc}
+	if c := p.Clicked; c != nil {
+		out.Clicked = &clickedJSON{CSSSelector: c.CSSSelector, CharacterOffset: c.CharacterOffset}
+		if c.TextBefore != nil || c.TextHighlight != nil || c.TextAfter != nil {
+			out.Clicked.Text = &textJSON{Before: c.TextBefore, Highlight: c.TextHighlight, After: c.TextAfter}
+		}
+	}
 	if p.TextBefore != nil || p.TextHighlight != nil || p.TextAfter != nil {
 		out.Text = &textJSON{
 			Before:    p.TextBefore,
@@ -108,6 +158,10 @@ func (s *site) putPosition(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "cssSelector and characterOffset must both be set or both omitted")
 		return
 	}
+	if body.Clicked != nil && !validClicked(body.Clicked) {
+		writeError(w, http.StatusBadRequest, "clicked needs a non-empty cssSelector with characterOffset ≥ 0, a text.highlight, or both")
+		return
+	}
 
 	total, err := s.books.TotalProgression(r.Context(), user, id, body.Href, *body.Locations.Progression)
 	switch {
@@ -129,6 +183,7 @@ func (s *site) putPosition(w http.ResponseWriter, r *http.Request) {
 		TotalProgression: total,
 		CSSSelector:      body.Locations.CSSSelector,
 		CharacterOffset:  body.Locations.CharacterOffset,
+		Clicked:          toClicked(body.Clicked),
 	}
 	if body.Text != nil {
 		p.TextBefore = body.Text.Before

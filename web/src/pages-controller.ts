@@ -48,6 +48,14 @@ export type PagesController = {
   showEnd: () => void;
   // Forgets the turned spreads (a Repeated lines change).
   forget: () => void;
+  // The clicked character (ADR-0005 Clicked character), or null.
+  clicked: () => { node: Text; offset: number } | null;
+  // Restores a clicked character after the spread start: it becomes the
+  // clicked character and its line is kept on the spread as re-layout does.
+  applyClicked: (node: Text, offset: number) => void;
+  // The shown spread start as an offset into the article's text; 0 for the
+  // document's first spread.
+  spreadStartKey: () => number;
   // The shown spread's first page in the document's current column flow,
   // from 1, the document's pages up to its last line, and the pages a spread
   // holds (ADR-0010 Page numbers). Reads the existing layout only.
@@ -64,8 +72,9 @@ export type PagesControllerOptions = {
   repeatedLines: () => number;
   // Called when a turn would leave the document.
   onExhausted: (direction: Turn) => void;
-  // Called after a spread turn, or once a scroll the reader did not make
-  // has been aligned to a spread start (not restore or re-layout).
+  // Called after a spread turn, once a scroll the reader did not make has
+  // been aligned to a spread start, or when a click or selection stores a new
+  // clicked character (not restore or re-layout).
   onMove?: () => void;
   // Called after every re-layout, which can change atStart and atEnd
   // without a scroll event. bookWide is false when only this document
@@ -224,6 +233,91 @@ function lastContentOffset(article: HTMLElement): number {
   return offset;
 }
 
+type CharacterPoint = { node: Text; offset: number };
+
+function charRect(node: Text, offset: number): DOMRect {
+  const range = document.createRange();
+  range.setStart(node, offset);
+  range.setEnd(node, Math.min(node.length, offset + 1));
+  return range.getBoundingClientRect();
+}
+
+const isSpaceChar = (c: string) => /\s/.test(c);
+
+// The non-whitespace characters between two points, in document order, with
+// their boxes; characters with no box are left out.
+function charactersBetween(
+  start: CharacterPoint,
+  end: CharacterPoint,
+): { point: CharacterPoint; rect: DOMRect }[] {
+  const range = document.createRange();
+  range.setStart(start.node, start.offset);
+  range.setEnd(end.node, Math.min(end.node.length, end.offset + 1));
+  const out: { point: CharacterPoint; rect: DOMRect }[] = [];
+  const root = range.commonAncestorContainer;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  if (root instanceof Text) {
+    walker.currentNode = root;
+  }
+  for (
+    let node: Node | null = root instanceof Text ? root : walker.nextNode();
+    node;
+    node = walker.nextNode()
+  ) {
+    const text = node as Text;
+    if (!range.intersectsNode(text)) {
+      continue;
+    }
+    const from = text === range.startContainer ? range.startOffset : 0;
+    const to = text === range.endContainer ? range.endOffset : text.length;
+    for (let i = from; i < to; i++) {
+      if (isSpaceChar(text.data[i])) {
+        continue;
+      }
+      const rect = charRect(text, i);
+      if (rect.width === 0 && rect.height === 0) {
+        continue;
+      }
+      out.push({ point: { node: text, offset: i }, rect });
+    }
+  }
+  return out;
+}
+
+// Pictures and rules: a click level with one marks nothing.
+const pictureSelector = "img, svg, video, hr";
+// Elements a click on which belongs to themselves, not to the reading mark.
+const ownClickSelector =
+  "a[href], button, input, select, textarea, label, summary, [contenteditable]";
+// How far a press may move and still be a click.
+const clickSlopPx = 5;
+const markWidthPx = 10;
+const markHeightPx = 12;
+const markOffsetPx = 3;
+
+// The non-whitespace characters of an element, with their boxes.
+function charactersIn(el: Element) {
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let first: Text | null = null;
+  let last: Text | null = null;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if ((n as Text).length === 0) {
+      continue;
+    }
+    first ??= n as Text;
+    last = n as Text;
+  }
+  return first && last
+    ? charactersBetween(
+        { node: first, offset: 0 },
+        { node: last, offset: last.length - 1 },
+      )
+    : [];
+}
+
+const distanceTo = (rect: { top: number; bottom: number }, y: number) =>
+  y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0;
+
 const startOf = (line: Line): SpreadStart =>
   line.el ? { key: line.start, el: line.el } : { key: line.start };
 
@@ -240,7 +334,12 @@ export function attachPagesController(
   } = options;
   const burst = wheelBurst;
   let colStep = 0;
+  let pageWidth = 0;
+  let gap = 0;
   let pagesPerSpread = 1;
+  // The clicked character as an offset into the article's text, which the
+  // marker never changes (ADR-0005 Clicked character).
+  let clickedKey: number | null = null;
   let measuredWidth = 0;
   // The spread start: null is the document's first spread (ADR-0010).
   let current: SpreadStart | null = null;
@@ -258,10 +357,97 @@ export function attachPagesController(
     pagesPerSpread,
   }));
 
+  // The reading mark (ADR-0010): one arrow outside the article, beside the
+  // clicked character's line, or else the spread start.
+  const readingMark = (() => {
+    const svgNS = "http://www.w3.org/2000/svg";
+    const el = document.createElement("div");
+    el.setAttribute("data-tomeshelf-reading-mark", "");
+    el.setAttribute("aria-hidden", "true");
+    el.hidden = true;
+    const svg = document.createElementNS(svgNS, "svg");
+    svg.setAttribute("width", String(markWidthPx));
+    svg.setAttribute("height", String(markHeightPx));
+    svg.setAttribute("viewBox", `0 0 ${markWidthPx} ${markHeightPx}`);
+    const arrow = document.createElementNS(svgNS, "polygon");
+    arrow.setAttribute("fill", "currentColor");
+    svg.append(arrow);
+    el.append(svg);
+    article.parentElement?.append(el);
+    let frame = 0;
+
+    // Where the mark goes: the page and the vertical extent it sits beside.
+    const target = (): { page: number; top: number; bottom: number } | null => {
+      const point = clickedPoint();
+      if (point) {
+        const page = pageOf(point);
+        if (page >= 0) {
+          const r = charRect(point.node, point.offset);
+          return { page, top: r.top, bottom: r.bottom };
+        }
+      }
+      const first = layout.lines(layout.column, layout.column, 1)[0];
+      if (!first) {
+        return null;
+      }
+      if (first.el) {
+        const top = first.el.getBoundingClientRect().top;
+        return { page: 0, top, bottom: top + markHeightPx };
+      }
+      const at = layout.textPoint(first.start);
+      if (!at) {
+        return null;
+      }
+      const r = charRect(at.node, at.offset);
+      return { page: 0, top: r.top, bottom: r.bottom };
+    };
+
+    const place = () => {
+      frame = 0;
+      const host = el.parentElement;
+      const at = colStep > 0 ? target() : null;
+      if (!host || !at) {
+        el.hidden = true;
+        return;
+      }
+      const box = article.getBoundingClientRect();
+      const hostBox = host.getBoundingClientRect();
+      const right = pagesPerSpread === 2 && at.page === 1;
+      const left = right
+        ? box.right + markOffsetPx
+        : box.left - markOffsetPx - markWidthPx;
+      const middle = (at.top + at.bottom) / 2;
+      el.style.left = `${left - hostBox.left}px`;
+      el.style.top = `${middle - markHeightPx / 2 - hostBox.top}px`;
+      el.dataset.side = right ? "right" : "left";
+      // It points at the text.
+      arrow.setAttribute(
+        "points",
+        right
+          ? `${markWidthPx},0 0,${markHeightPx / 2} ${markWidthPx},${markHeightPx}`
+          : `0,0 ${markWidthPx},${markHeightPx / 2} 0,${markHeightPx}`,
+      );
+      el.hidden = false;
+    };
+
+    return {
+      schedule: () => {
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(place);
+      },
+      destroy: () => {
+        cancelAnimationFrame(frame);
+        el.remove();
+      },
+    };
+  })();
+
   const measure = () => {
     const width = availableWidth();
     const metrics = applyMetrics(article, width, textWidthRem());
     colStep = metrics.pageWidth + metrics.gap;
+    pageWidth = metrics.pageWidth;
+    gap = metrics.gap;
     pagesPerSpread = metrics.pagesPerSpread;
     measuredWidth = width;
   };
@@ -286,6 +472,7 @@ export function attachPagesController(
     current = start;
     layout.show(start);
     ownLeft = article.scrollLeft;
+    readingMark.schedule();
   };
 
   // The document's first line is its first spread start, shown without a
@@ -389,9 +576,12 @@ export function attachPagesController(
     // spread start for a new width would undo it.
     settle();
     ensureMeasured();
+    const clickedBefore = clickedKey;
+    clickedKey = null;
     if (direction === "next") {
       const after = layout.after();
       if (!after) {
+        clickedKey = clickedBefore;
         onExhausted("next");
         return false;
       }
@@ -408,6 +598,7 @@ export function attachPagesController(
       }
     } else {
       if (atStart()) {
+        clickedKey = clickedBefore;
         onExhausted("previous");
         return false;
       }
@@ -434,13 +625,7 @@ export function attachPagesController(
   // The line holding the character, in the current layout.
   const lineHolding = (node: Text, offset: number): Line | null => {
     const key = layout.keyOf(node, offset);
-    const range = document.createRange();
-    range.setStart(node, offset);
-    range.setEnd(node, Math.min(node.length, offset + 1));
-    const rect = range.getBoundingClientRect();
-    const col = layout.columnAt(
-      rect.left - article.getBoundingClientRect().left + article.scrollLeft,
-    );
+    const col = columnOf(node, offset);
     let found: Line | null = null;
     for (const line of layout.lines(Math.max(0, col - 1), col)) {
       if (line.start <= key) {
@@ -450,6 +635,330 @@ export function attachPagesController(
       }
     }
     return found;
+  };
+
+  // The column showing a character. Text in a nested scroll area (a wide
+  // table, pre) counts where the area's box is: its clipped overflow can lie
+  // over the next column.
+  const columnOf = (node: Text, offset: number) => {
+    const area = node.parentElement?.closest("table, pre");
+    const rect =
+      area && article.contains(area)
+        ? area.getBoundingClientRect()
+        : charRect(node, offset);
+    return layout.columnAt(
+      rect.left - article.getBoundingClientRect().left + article.scrollLeft,
+    );
+  };
+
+  // The page of the shown spread holding the column, or -1.
+  const pageOfColumn = (col: number) =>
+    col >= layout.column && col < layout.column + pagesPerSpread
+      ? col - layout.column
+      : -1;
+
+  // The page of the shown spread holding the character, or -1.
+  const pageOf = (point: CharacterPoint) =>
+    pageOfColumn(columnOf(point.node, point.offset));
+
+  const clickedPoint = (): CharacterPoint | null =>
+    clickedKey === null ? null : layout.textPoint(clickedKey);
+
+  // Keeps the clicked line on the spread after re-layout or restore
+  // (ADR-0010 Re-layout): while it is on the spread the spread start stays;
+  // otherwise the line Repeated lines lines before it starts the spread,
+  // stepping forward one line at a time while a block that cannot split
+  // keeps it off the spread.
+  const keepClicked = () => {
+    const point = clickedPoint();
+    if (!point) {
+      clickedKey = null;
+      return;
+    }
+    if (pageOf(point) >= 0) {
+      return;
+    }
+    const line = lineHolding(point.node, point.offset);
+    if (!line) {
+      return;
+    }
+    const n = options.repeatedLines();
+    const earlier = (from: number) =>
+      layout.lines(from, line.col).filter((l) => l.start < line.start);
+    let before = earlier(Math.max(0, line.col - 2));
+    if (before.length < n && line.col > 2) {
+      before = earlier(0);
+    }
+    const candidates = [
+      ...(n === 0 ? [] : before.slice(Math.max(0, before.length - n))),
+      line,
+    ];
+    // Fewer lines before it than Repeated lines: the document's first line.
+    const first = n > 0 && before.length < n ? null : candidates[0];
+    // show(null) shows the document's first line, which is candidates[0]
+    // then: either way the next candidate is candidates[1].
+    show(toStart(first));
+    for (const next of candidates.slice(1)) {
+      const now = clickedPoint();
+      if (!now || pageOf(now) >= 0) {
+        break;
+      }
+      show(toStart(next));
+    }
+  };
+
+  // The characters of a page line, in document order; inside a table or pre,
+  // those its box shows of the visual line at height y.
+  const lineCharacters = (line: Line, y: number) => {
+    if (line.el) {
+      const all = charactersIn(line.el);
+      if (all.length === 0) {
+        return [];
+      }
+      const spans = all.find((c) => y >= c.rect.top && y <= c.rect.bottom);
+      const nearest =
+        spans ??
+        all.reduce((best, c) =>
+          distanceTo(c.rect, y) < distanceTo(best.rect, y) ? c : best,
+        );
+      // Only what the box shows: a wide line's overflow is clipped, and
+      // may lie over the page gap or the next page.
+      const clip = line.el.getBoundingClientRect();
+      return all.filter(
+        (c) =>
+          Math.abs(c.rect.top - nearest.rect.top) < 2 &&
+          c.rect.right > clip.left &&
+          c.rect.left < clip.right,
+      );
+    }
+    const from = layout.textPoint(line.start);
+    const to = layout.textPoint(line.end);
+    return from && to ? charactersBetween(from, to) : [];
+  };
+
+  // The character a click at (x, y) marks (ADR-0005 Capture): on the line at
+  // the pointer's height, on the page nearest the pointer, between two lines
+  // the nearer one; on a line's text the character nearest the pointer,
+  // beside it the line's last. null above the first line, below the last,
+  // level with a picture, or on a page with nothing on it.
+  const pointAt = (x: number, y: number): CharacterPoint | null => {
+    const box = article.getBoundingClientRect();
+    if (y < box.top || y >= box.bottom) {
+      return null;
+    }
+    const page =
+      pagesPerSpread === 2 && x >= box.left + pageWidth + gap / 2 ? 1 : 0;
+    const col = layout.column + page;
+    const rows = layout.lines(col, col).flatMap((line) => {
+      if (line.el) {
+        const r = line.el.getBoundingClientRect();
+        return [{ line, top: r.top, bottom: r.bottom }];
+      }
+      const at = layout.textPoint(line.start);
+      if (!at) {
+        return [];
+      }
+      const r = charRect(at.node, at.offset);
+      return [{ line, top: r.top, bottom: r.bottom }];
+    });
+    if (
+      rows.length === 0 ||
+      y < Math.min(...rows.map((r) => r.top)) ||
+      y > Math.max(...rows.map((r) => r.bottom))
+    ) {
+      return null;
+    }
+    type Row = (typeof rows)[number];
+    // The row at the pointer's height, or the nearest; the earlier on a tie.
+    const nearest = (among: Row[]) =>
+      among.reduce((best, r) =>
+        distanceTo(r, y) < distanceTo(best, y) ? r : best,
+      );
+    const isPicture = (r: Row) => r.line.el?.matches(pictureSelector) ?? false;
+    const overlaps = (a: Row, b: Row) =>
+      a.top < b.bottom - 2 && a.bottom > b.top + 2;
+    const textRows = rows.filter((r) => !r.line.el);
+    let row = nearest(rows);
+    if (isPicture(row)) {
+      // An inline or floated picture belongs to the text on its visual line;
+      // only one with none there marks nothing (ADR-0005 Capture).
+      const picture = row;
+      const beside = textRows.filter((r) => overlaps(r, picture));
+      if (beside.length === 0) {
+        return null;
+      }
+      row = nearest(beside);
+    }
+    // The whole visual line: text on both sides of an inline picture is
+    // measured as separate lines.
+    const chosen = row;
+    const visual = chosen.line.el
+      ? [chosen]
+      : textRows.filter((r) => overlaps(r, chosen));
+    const chars = visual.flatMap((r) => lineCharacters(r.line, y));
+    const lastChar = chars.at(-1);
+    if (!lastChar) {
+      return null;
+    }
+    const left = Math.min(...chars.map((c) => c.rect.left));
+    const right = Math.max(...chars.map((c) => c.rect.right));
+    if (x < left || x > right) {
+      return lastChar.point;
+    }
+    let best = lastChar;
+    for (const c of chars) {
+      const mid = (c.rect.left + c.rect.right) / 2;
+      if (
+        Math.abs(x - mid) < Math.abs(x - (best.rect.left + best.rect.right) / 2)
+      ) {
+        best = c;
+      }
+    }
+    return best.point;
+  };
+
+  // The character a selection marks: its last non-whitespace character in
+  // document order, when the selection lies in the article and that
+  // character is on the shown spread. undefined when nothing is selected.
+  const selectionPoint = (): CharacterPoint | null | undefined => {
+    const selection = document.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+      return undefined;
+    }
+    const range = selection.getRangeAt(selection.rangeCount - 1);
+    if (
+      !article.contains(range.startContainer) ||
+      !article.contains(range.endContainer)
+    ) {
+      return null;
+    }
+    const nodes: Text[] = [];
+    const walker = document.createTreeWalker(article, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (range.intersectsNode(n)) {
+        nodes.push(n as Text);
+      }
+    }
+    for (const node of nodes.reverse()) {
+      const from = node === range.startContainer ? range.startOffset : 0;
+      const to = node === range.endContainer ? range.endOffset : node.length;
+      for (let i = to - 1; i >= from; i--) {
+        if (!isSpaceChar(node.data[i])) {
+          const point = { node, offset: i };
+          const rect = charRect(node, i);
+          const box = article.getBoundingClientRect();
+          const shown =
+            pageOf(point) >= 0 &&
+            rect.bottom > box.top + 1 &&
+            rect.top < box.bottom - 1;
+          return shown ? point : null;
+        }
+      }
+    }
+    return null;
+  };
+
+  const setClicked = (point: CharacterPoint) => {
+    const key = layout.keyOf(point.node, point.offset);
+    if (key === clickedKey) {
+      return;
+    }
+    clickedKey = key;
+    readingMark.schedule();
+    onMove?.();
+  };
+
+  // A press of the primary button or one touch, remembered so a click that
+  // moved further than a few pixels, or a second touch, marks nothing.
+  let press: { x: number; y: number } | null = null;
+  const onPointerDown = (event: PointerEvent) => {
+    press =
+      event.isPrimary && inReadingArea(event.target)
+        ? { x: event.clientX, y: event.clientY }
+        : null;
+  };
+  const onPointerCancel = () => {
+    press = null;
+  };
+
+  // Selections are read when the pointer that made or extended them is
+  // released (ADR-0005 Capture), even outside the window, where no click
+  // follows; a selection made with the keyboard is never read.
+  const onPointerUp = (event: PointerEvent) => {
+    if (
+      !press ||
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+    settle();
+    ensureMeasured();
+    takeSelection();
+  };
+
+  // The element an event landed on, when it is the article, inside it, or one
+  // of the reader's own elements around it; not anything placed over them (an
+  // extension's popup, a dialog).
+  const inReadingArea = (target: EventTarget | null): Element | null => {
+    const el =
+      target instanceof Element
+        ? target
+        : target instanceof Node
+          ? target.parentElement
+          : null;
+    return el && (article.contains(el) || el.contains(article)) ? el : null;
+  };
+
+  // The element a primary click landed on in the reading area, with no Ctrl,
+  // Alt or Meta held. Shift is left to onClick: it may extend a selection.
+  const readingTarget = (event: MouseEvent): Element | null => {
+    if (event.button !== 0 || event.ctrlKey || event.altKey || event.metaKey) {
+      return null;
+    }
+    return inReadingArea(event.target);
+  };
+
+  // A selection marks its last character, when that is on the spread.
+  const takeSelection = () => {
+    const selected = selectionPoint();
+    if (selected) {
+      setClicked(selected);
+    }
+  };
+
+  // Clicks are taken in the capture phase on the document, so an extension
+  // that stops a click on the text or prevents its default (a word lookup)
+  // does not hide it (issue #129).
+  const onClick = (event: MouseEvent) => {
+    const start = press;
+    press = null;
+    const target = readingTarget(event);
+    if (!target) {
+      return;
+    }
+    settle();
+    ensureMeasured();
+    // A selection was read at pointerup, Shift+click included; the click
+    // that made it marks nothing more.
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed) {
+      return;
+    }
+    if (
+      event.shiftKey ||
+      (article.contains(target) && target.closest(ownClickSelector)) ||
+      !start ||
+      Math.hypot(event.clientX - start.x, event.clientY - start.y) > clickSlopPx
+    ) {
+      return;
+    }
+    const point = pointAt(event.clientX, event.clientY);
+    if (point) {
+      setClicked(point);
+    }
   };
 
   // After a scroll the reader did not make, the line holding the first
@@ -480,6 +989,7 @@ export function attachPagesController(
       layout.clearScrollEnd();
     }
     memory.clear();
+    clickedKey = null;
     show(start);
     queueMicrotask(() => onMove?.());
   };
@@ -524,8 +1034,12 @@ export function attachPagesController(
     if (point) {
       window.clearTimeout(alignTimer);
       alignPending = false;
+      // A scroll the reader did not make sets a new spread start.
+      clickedKey = null;
       show(toStart(lineHolding(point.node, point.offset)));
       queueMicrotask(() => onMove?.());
+    } else {
+      keepClicked();
     }
     onRelayout?.(bookWide);
   };
@@ -645,6 +1159,10 @@ export function attachPagesController(
   article.addEventListener("touchmove", onTouchMove, { passive: false });
   article.addEventListener("touchend", onTouchEnd, { passive: true });
   article.addEventListener("scroll", onScroll, { passive: true });
+  document.addEventListener("pointerdown", onPointerDown, true);
+  document.addEventListener("pointercancel", onPointerCancel, true);
+  document.addEventListener("pointerup", onPointerUp, true);
+  document.addEventListener("click", onClick, true);
 
   return {
     destroy: () => {
@@ -655,6 +1173,11 @@ export function attachPagesController(
       article.removeEventListener("touchend", onTouchEnd);
       article.removeEventListener("scroll", onScroll);
       article.removeEventListener("load", onLoad, true);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
+      document.removeEventListener("click", onClick, true);
+      readingMark.destroy();
       cancelAnimationFrame(loadFrame);
       window.clearTimeout(alignTimer);
       layout.removeMarker();
@@ -686,6 +1209,7 @@ export function attachPagesController(
     },
     showCharacter: (node, offset) => {
       ensureMeasured();
+      clickedKey = null;
       layout.removeMarker();
       layout.clearScrollEnd();
       memory.clear();
@@ -693,6 +1217,7 @@ export function attachPagesController(
     },
     showProgression: (progression) => {
       ensureMeasured();
+      clickedKey = null;
       layout.removeMarker();
       layout.clearScrollEnd();
       memory.clear();
@@ -706,6 +1231,7 @@ export function attachPagesController(
     },
     showElement: (el) => {
       ensureMeasured();
+      clickedKey = null;
       memory.clear();
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
       let text = walker.nextNode() as Text | null;
@@ -754,6 +1280,7 @@ export function attachPagesController(
     },
     showEnd: () => {
       ensureMeasured();
+      clickedKey = null;
       memory.clear();
       show(null);
       // The last line, found from the last column back past any blank ones.
@@ -770,6 +1297,14 @@ export function attachPagesController(
       }
     },
     forget: () => memory.clear(),
+    clicked: clickedPoint,
+    applyClicked: (node, offset) => {
+      ensureMeasured();
+      clickedKey = layout.keyOf(node, offset);
+      keepClicked();
+      readingMark.schedule();
+    },
+    spreadStartKey: () => Math.max(0, current?.key ?? 0),
     spreadPages: () => {
       ensureMeasured();
       const page = layout.column + 1;

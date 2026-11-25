@@ -33,6 +33,7 @@ A reader can show a document as one scroll or as pages (ADR-0010). In the pages 
 - To bring an element into view, call `element.scrollIntoView()`. It works in both layouts; Tomeshelf then aligns the article to the spread holding it.
 - The article may contain one empty `<span data-tomeshelf-page-start>`, placed where the visible spread starts, and the text node at that point may be split in two. They move whenever the reader turns a spread. The element holds no text and is not a block, so `textContent` and block numbers are unchanged; don't keep references to text nodes across turns.
 - To tell whether text is visible, compare its box with the article's box (`getBoundingClientRect()`), not with the window.
+- In the pages layout Tomeshelf draws a reading mark, an arrow beside the line the reader last clicked or selected, outside the article. It holds no book text, is hidden from assistive technology and takes no pointer events, so it never changes the article's text or block numbers. Its markup is not part of the contract.
 
 The layout is not part of the contract: do not depend on the article's CSS.
 
