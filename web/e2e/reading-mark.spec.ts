@@ -1325,6 +1325,140 @@ test("a press inside a popup released just outside it marks nothing", async ({
   );
 });
 
+// The quote of the last non-whitespace character of the element's text
+// whose box overlaps the band from top to bottom: the end of a visual line.
+async function bandEnd(
+  page: Page,
+  selector: string,
+  band: { top: number; bottom: number },
+) {
+  return article(page).evaluate(
+    (el, { selector, band }) => {
+      const block = el.querySelector(selector);
+      const range = document.createRange();
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let key = 0;
+      let last: number | null = null;
+      for (let n = walker.nextNode() as Text | null; n; ) {
+        if (block?.contains(n)) {
+          for (let i = 0; i < n.length; i++) {
+            if (/\s/.test(n.data[i])) {
+              continue;
+            }
+            range.setStart(n, i);
+            range.setEnd(n, i + 1);
+            const r = range.getBoundingClientRect();
+            if (r.top < band.bottom - 2 && r.bottom > band.top + 2) {
+              last = key + i;
+            }
+          }
+        }
+        key += n.length;
+        n = walker.nextNode() as Text | null;
+      }
+      return last === null
+        ? null
+        : (el.textContent ?? "").slice(last, last + 64);
+    },
+    { selector, band },
+  );
+}
+
+test("level with a floated picture, a margin click marks the text line beside it", async ({
+  page,
+}) => {
+  const id = await openBook(page);
+  await page.goto(`/books/${id}/read/2`);
+  await expect(article(page)).toContainText("The End");
+  const saves = positionSaves(page);
+  const { article: a } = await spreadBoxes(page);
+
+  // A floated picture beside several lines: level with the second line.
+  const picture = await page.locator("#floated img").boundingBox();
+  const second = await article(page).evaluate((el) => {
+    const p = el.querySelector("#floated");
+    const range = document.createRange();
+    const tops: { top: number; bottom: number }[] = [];
+    const walker = document.createTreeWalker(p ?? el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode() as Text | null; n; ) {
+      for (let i = 0; i < n.length; i++) {
+        range.setStart(n, i);
+        range.setEnd(n, i + 1);
+        const r = range.getBoundingClientRect();
+        if (r.height > 0 && !tops.some((t) => Math.abs(t.top - r.top) < 2)) {
+          tops.push({ top: r.top, bottom: r.bottom });
+        }
+      }
+      n = walker.nextNode() as Text | null;
+    }
+    return tops[1] ?? null;
+  });
+  if (!picture || !second || second.bottom > picture.y + picture.height) {
+    throw new Error("the second line is not beside the picture");
+  }
+  const secondEnd = await bandEnd(page, "#floated", second);
+  const count = saves.length;
+  await page.mouse.click(a.left - 8, (second.top + second.bottom) / 2);
+  await expect
+    .poll(() =>
+      saves.length > count ? saves.at(-1)?.clicked?.text?.highlight : null,
+    )
+    .toBe(secondEnd);
+});
+
+test("a drag selection is read at release, with no click after it", async ({
+  page,
+}) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  // A release outside the window sends no click. Headless Chromium cannot
+  // release outside it, so a listener that runs first swallows the click.
+  await page.evaluate(() =>
+    window.addEventListener("click", (e) => e.stopImmediatePropagation(), {
+      capture: true,
+    }),
+  );
+  const token = await tokenOnPage(page, 0);
+  const from = await charBox(page, token);
+  const to = await charBox(page, token, 3);
+  await drag(page, center(from), { x: to.right + 30, y: center(to).y });
+  const end = await selectionEnd(page);
+  expect(end, "the drag made a selection").not.toBeNull();
+  await expect
+    .poll(() => saves.at(-1)?.clicked?.text?.highlight)
+    .toBe(end?.highlight);
+});
+
+test("a selection made without the pointer marks nothing", async ({ page }) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  const token = await tokenOnPage(page, 0);
+  const box = await charBox(page, token);
+  await page.mouse.click(center(box).x, center(box).y);
+  await expect.poll(() => saves.at(-1)?.clicked).toBeTruthy();
+  const state = await settledState(page, saves);
+  // As the keyboard or a script selects: no press, no release. Read-only
+  // text has no caret for Shift+arrow keys, so the Selection API stands in.
+  await article(page).evaluate((el, token) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let n = walker.nextNode() as Text | null; n; ) {
+      const i = n.data.indexOf(token);
+      if (i >= 0) {
+        getSelection()?.setBaseAndExtent(n, i, n, Math.min(n.length, i + 40));
+        return;
+      }
+      n = walker.nextNode() as Text | null;
+    }
+  }, token);
+  expect(await selectionEnd(page), "a selection was made").not.toBeNull();
+  await expectNothingStored(
+    page,
+    saves,
+    state,
+    "a selection made without the pointer",
+  );
+});
+
 test("on a spread whose right page is empty, clicks on that page or its margin mark nothing", async ({
   page,
 }) => {

@@ -768,14 +768,34 @@ export function attachPagesController(
     ) {
       return null;
     }
+    type Row = (typeof rows)[number];
     // The row at the pointer's height, or the nearest; the earlier on a tie.
-    const row = rows.reduce((best, r) =>
-      distanceTo(r, y) < distanceTo(best, y) ? r : best,
-    );
-    if (row.line.el?.matches(pictureSelector)) {
-      return null;
+    const nearest = (among: Row[]) =>
+      among.reduce((best, r) =>
+        distanceTo(r, y) < distanceTo(best, y) ? r : best,
+      );
+    const isPicture = (r: Row) => r.line.el?.matches(pictureSelector) ?? false;
+    const overlaps = (a: Row, b: Row) =>
+      a.top < b.bottom - 2 && a.bottom > b.top + 2;
+    const textRows = rows.filter((r) => !r.line.el);
+    let row = nearest(rows);
+    if (isPicture(row)) {
+      // An inline or floated picture belongs to the text on its visual line;
+      // only one with none there marks nothing (ADR-0005 Capture).
+      const picture = row;
+      const beside = textRows.filter((r) => overlaps(r, picture));
+      if (beside.length === 0) {
+        return null;
+      }
+      row = nearest(beside);
     }
-    const chars = lineCharacters(row.line, y);
+    // The whole visual line: text on both sides of an inline picture is
+    // measured as separate lines.
+    const chosen = row;
+    const visual = chosen.line.el
+      ? [chosen]
+      : textRows.filter((r) => overlaps(r, chosen));
+    const chars = visual.flatMap((r) => lineCharacters(r.line, y));
     const lastChar = chars.at(-1);
     if (!lastChar) {
       return null;
@@ -861,6 +881,24 @@ export function attachPagesController(
     press = null;
   };
 
+  // Selections are read when the pointer that made or extended them is
+  // released (ADR-0005 Capture), even outside the window, where no click
+  // follows; a selection made with the keyboard is never read.
+  const onPointerUp = (event: PointerEvent) => {
+    if (
+      !press ||
+      event.button !== 0 ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.metaKey
+    ) {
+      return;
+    }
+    settle();
+    ensureMeasured();
+    takeSelection();
+  };
+
   // The element an event landed on, when it is the article, inside it, or one
   // of the reader's own elements around it; not anything placed over them (an
   // extension's popup, a dialog).
@@ -883,17 +921,12 @@ export function attachPagesController(
     return inReadingArea(event.target);
   };
 
-  // A selection marks its last character; true when there is one, whether
-  // or not it marks anything.
-  const takeSelection = (): boolean => {
+  // A selection marks its last character, when that is on the spread.
+  const takeSelection = () => {
     const selected = selectionPoint();
-    if (selected === undefined) {
-      return false;
-    }
     if (selected) {
       setClicked(selected);
     }
-    return true;
   };
 
   // Clicks are taken in the capture phase on the document, so an extension
@@ -908,8 +941,10 @@ export function attachPagesController(
     }
     settle();
     ensureMeasured();
-    // A selection counts however it was made, Shift+click included.
-    if (takeSelection()) {
+    // A selection was read at pointerup, Shift+click included; the click
+    // that made it marks nothing more.
+    const selection = document.getSelection();
+    if (selection && !selection.isCollapsed) {
       return;
     }
     if (
@@ -1126,6 +1161,7 @@ export function attachPagesController(
   article.addEventListener("scroll", onScroll, { passive: true });
   document.addEventListener("pointerdown", onPointerDown, true);
   document.addEventListener("pointercancel", onPointerCancel, true);
+  document.addEventListener("pointerup", onPointerUp, true);
   document.addEventListener("click", onClick, true);
 
   return {
@@ -1139,6 +1175,7 @@ export function attachPagesController(
       article.removeEventListener("load", onLoad, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
       document.removeEventListener("pointercancel", onPointerCancel, true);
+      document.removeEventListener("pointerup", onPointerUp, true);
       document.removeEventListener("click", onClick, true);
       readingMark.destroy();
       cancelAnimationFrame(loadFrame);
