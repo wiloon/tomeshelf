@@ -87,7 +87,10 @@ ON CONFLICT (user_id) DO UPDATE SET
 -- name: GetReadingPosition :one
 SELECT reading_positions.href, reading_positions.progression, reading_positions.total_progression,
        reading_positions.css_selector, reading_positions.character_offset,
-       reading_positions.text_before, reading_positions.text_highlight, reading_positions.text_after
+       reading_positions.text_before, reading_positions.text_highlight, reading_positions.text_after,
+       reading_positions.clicked_css_selector, reading_positions.clicked_character_offset,
+       reading_positions.clicked_text_before, reading_positions.clicked_text_highlight,
+       reading_positions.clicked_text_after
 FROM reading_positions
 JOIN users ON users.id = reading_positions.user_id
 JOIN books ON books.user_id = reading_positions.user_id AND books.id = reading_positions.book_id
@@ -96,11 +99,15 @@ WHERE users.username = sqlc.arg(username) AND reading_positions.book_id = sqlc.a
 -- name: UpsertReadingPosition :execrows
 INSERT INTO reading_positions (
     user_id, book_id, href, progression, total_progression,
-    css_selector, character_offset, text_before, text_highlight, text_after, saved_at
+    css_selector, character_offset, text_before, text_highlight, text_after, saved_at,
+    clicked_css_selector, clicked_character_offset,
+    clicked_text_before, clicked_text_highlight, clicked_text_after
 )
 SELECT books.user_id, books.id, sqlc.arg(href), sqlc.arg(progression), sqlc.arg(total_progression),
        sqlc.arg(css_selector), sqlc.arg(character_offset),
-       sqlc.arg(text_before), sqlc.arg(text_highlight), sqlc.arg(text_after), sqlc.arg(saved_at)
+       sqlc.arg(text_before), sqlc.arg(text_highlight), sqlc.arg(text_after), sqlc.arg(saved_at),
+       sqlc.arg(clicked_css_selector), sqlc.arg(clicked_character_offset),
+       sqlc.arg(clicked_text_before), sqlc.arg(clicked_text_highlight), sqlc.arg(clicked_text_after)
 FROM books JOIN users ON users.id = books.user_id
 WHERE users.username = sqlc.arg(username) AND books.id = sqlc.arg(book_id)
 ON CONFLICT (user_id, book_id) DO UPDATE SET
@@ -112,7 +119,12 @@ ON CONFLICT (user_id, book_id) DO UPDATE SET
     text_before = excluded.text_before,
     text_highlight = excluded.text_highlight,
     text_after = excluded.text_after,
-    saved_at = excluded.saved_at;
+    saved_at = excluded.saved_at,
+    clicked_css_selector = excluded.clicked_css_selector,
+    clicked_character_offset = excluded.clicked_character_offset,
+    clicked_text_before = excluded.clicked_text_before,
+    clicked_text_highlight = excluded.clicked_text_highlight,
+    clicked_text_after = excluded.clicked_text_after;
 
 -- name: GetTabHighestSequence :one
 SELECT reading_position_tabs.highest_sequence
