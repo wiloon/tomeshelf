@@ -44,6 +44,10 @@ _Avoid_: Mode, view
 One column of a document's text in the pages layout, as tall as the window allows.
 _Avoid_: Screen, column; never a synonym for document
 
+**Page number**:
+A page's estimated place among all the book's pages in the current pages layout; it changes when the layout changes.
+_Avoid_: Location, position
+
 **Spread**:
 The one or two pages shown at the same time.
 _Avoid_: Screen, view, two-page view
