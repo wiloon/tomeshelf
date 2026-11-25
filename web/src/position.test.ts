@@ -1,6 +1,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { renderDocument } from "./navigator";
 import {
+  applyClickedPosition,
   captureLocator,
   documentProgression,
   type Locator,
@@ -611,4 +612,68 @@ test("a repeated clicked quote goes to the nearer block, then to the spread star
   expect(near(3, 2)).toBe("d");
   // Past the last occurrence: document order.
   expect(near(3, 99)).toBe("b");
+});
+
+test("a clicked character that resolves is applied, one that does not is dropped", () => {
+  const content = article(`<p id="a">One two.</p><p id="b">Three four.</p>`);
+  const href = place.readingOrder[0].href;
+  previousRangeBox = rangeProto.getBoundingClientRect;
+  rangeProto.getBoundingClientRect = () =>
+    DOMRect.fromRect({ x: 0, y: 0, width: 10, height: 20 });
+  const pages = {
+    clicked: () => null,
+    applyClicked: vi.fn(),
+    progression: () => 0,
+    progressionOf: () => 0,
+    prepareProgression: vi.fn(),
+    showCharacter: vi.fn(),
+    showProgression: vi.fn(),
+  };
+  applyClickedPosition(
+    content,
+    {
+      href,
+      locations: { progression: 0 },
+      clicked: {
+        cssSelector: '[data-tomeshelf-block="2"]',
+        characterOffset: 3,
+        text: { before: "One two.", highlight: "Three four.", after: "" },
+      },
+    },
+    "pages",
+    pages,
+  );
+  expect(pages.applyClicked).toHaveBeenCalledTimes(1);
+  const [node, offset] = pages.applyClicked.mock.calls[0];
+  expect(node.parentElement?.id).toBe("b");
+  expect(typeof offset).toBe("number");
+
+  pages.applyClicked.mockClear();
+  applyClickedPosition(
+    content,
+    {
+      href,
+      locations: { progression: 0 },
+      clicked: { text: { highlight: "nowhere" } },
+    },
+    "pages",
+    pages,
+  );
+  applyClickedPosition(
+    content,
+    { href, locations: { progression: 0 } },
+    "pages",
+    pages,
+  );
+  applyClickedPosition(
+    content,
+    {
+      href,
+      locations: { progression: 0 },
+      clicked: { text: { highlight: "Three" } },
+    },
+    "scroll",
+    pages,
+  );
+  expect(pages.applyClicked).not.toHaveBeenCalled();
 });

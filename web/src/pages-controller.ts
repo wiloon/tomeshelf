@@ -505,7 +505,11 @@ export function attachPagesController(
     show(toStart(target));
     for (let steps = 0; steps < 1000; steps++) {
       const now = lineHolding(point.node, point.offset);
-      const key = current?.key ?? Number.NEGATIVE_INFINITY;
+      // At the document start the spread begins on its first line.
+      const key =
+        current?.key ??
+        layout.lines(0, 0, 1)[0]?.start ??
+        Number.NEGATIVE_INFINITY;
       if (!now || onSpread(now) || key >= line.start) {
         return;
       }
@@ -715,8 +719,13 @@ export function attachPagesController(
     e.button === 0 && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey;
 
   const onPointerDown = (event: PointerEvent) => {
+    // Only a press that starts in the article can become a click or a
+    // selection; where it is released does not matter for a selection.
     press =
-      event.isPrimary && plain(event)
+      event.isPrimary &&
+      plain(event) &&
+      event.target instanceof Element &&
+      article.contains(event.target)
         ? { id: event.pointerId, x: event.clientX, y: event.clientY }
         : null;
   };
@@ -727,15 +736,15 @@ export function attachPagesController(
     if (!down || down.id !== event.pointerId || !plain(event)) {
       return;
     }
-    const target = event.target;
-    if (!(target instanceof Element) || !article.contains(target)) {
-      return;
-    }
     settle();
     ensureMeasured();
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && selection.rangeCount > 0) {
       hold(selectedLast(selection.getRangeAt(0)));
+      return;
+    }
+    const target = event.target;
+    if (!(target instanceof Element) || !article.contains(target)) {
       return;
     }
     if (
@@ -918,6 +927,7 @@ export function attachPagesController(
       layout.removeMarker();
       layout.clearScrollEnd();
       memory.clear();
+      clicked = null;
       show(toStart(lineHolding(node, offset)));
     },
     showProgression: (progression) => {
@@ -925,6 +935,7 @@ export function attachPagesController(
       layout.removeMarker();
       layout.clearScrollEnd();
       memory.clear();
+      clicked = null;
       const range = Math.max(0, article.scrollWidth - article.clientWidth);
       const col = layout.columnAt(progression * range);
       const line =

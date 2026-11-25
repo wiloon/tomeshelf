@@ -1764,22 +1764,63 @@ test("pages layout: a click on a link or with a modifier stores nothing, and a t
   await importChapters(page);
   await openFromLibrary(page);
   await page.setViewportSize({ width: 1280, height: 800 });
+  // A link inside the article; the layout settles before anything is counted.
+  await article(page).evaluate((el) => {
+    const p = el.querySelector("p");
+    if (!p) throw new Error("no paragraph");
+    const a = document.createElement("a");
+    a.href = "#linked";
+    a.textContent = "linkedword";
+    p.prepend(a);
+  });
+  await page.waitForTimeout(900);
   const puts = positionPuts(page);
   const word = await wordOn(page, "left", 1);
   if (!word) throw new Error("no word on the left page");
+  const link = await article(page).locator("a[href='#linked']").boundingBox();
+  if (!link) throw new Error("no link box");
+  await page.mouse.click(link.x + 2, link.y + link.height / 2);
+  await page.waitForTimeout(900);
+  // Following a link may save a position, but never a clicked character.
+  for (const put of puts) {
+    expect((put.postDataJSON() as SavedBody).clicked).toBeUndefined();
+  }
+  const base = puts.length;
 
   await page.keyboard.down("Shift");
   await page.mouse.click(word.x, word.y);
   await page.keyboard.up("Shift");
   await page.mouse.click(word.x, word.y, { button: "right" });
   await page.waitForTimeout(900);
-  expect(puts.length).toBe(0);
+  expect(puts.length).toBe(base);
 
   await page.mouse.click(word.x, word.y);
-  await expect.poll(() => puts.length).toBe(1);
+  await expect.poll(() => puts.length).toBe(base + 1);
   await page.keyboard.press("ArrowRight");
-  await expect.poll(() => puts.length).toBe(2);
-  expect((puts[1].postDataJSON() as SavedBody).clicked).toBeUndefined();
+  await expect.poll(() => puts.length).toBe(base + 2);
+  expect((puts[base + 1].postDataJSON() as SavedBody).clicked).toBeUndefined();
+});
+
+test("pages layout: a selection released beside the article stores its last character", async ({
+  page,
+}) => {
+  await setUp(page, "pages");
+  await importChapters(page);
+  await openFromLibrary(page);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const from = await wordOn(page, "left", 1);
+  const to = await wordOn(page, "left", 3);
+  if (!from || !to) throw new Error("no words on the left page");
+  const puts = positionPuts(page);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 5 });
+  const box = await article(page).boundingBox();
+  if (!box) throw new Error("no article box");
+  await page.mouse.move(box.x - 20, to.y, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(() => puts.length).toBe(1);
+  expect((puts[0].postDataJSON() as SavedBody).clicked).toBeDefined();
 });
 
 test("pages layout: a two-page to one-page resize keeps the clicked right-page line and saves nothing", async ({
@@ -1806,7 +1847,7 @@ test("pages layout: a two-page to one-page resize keeps the clicked right-page l
   const shown = await article(page).evaluate(
     (el, at) => {
       const block = el.querySelector(at.selector);
-      if (!block) return false;
+      if (!block) return null;
       const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
       let left = at.offset;
       for (
@@ -1823,16 +1864,22 @@ test("pages layout: a two-page to one-page resize keeps the clicked right-page l
         range.setEnd(node, left + 1);
         const r = range.getBoundingClientRect();
         const box = el.getBoundingClientRect();
-        return r.left >= box.left - 1 && r.right <= box.right + 1;
+        return {
+          inside: r.left >= box.left - 1 && r.right <= box.right + 1,
+          above: (r.top - box.top) / r.height,
+        };
       }
-      return false;
+      return null;
     },
     {
       selector: clicked?.cssSelector ?? "",
       offset: clicked?.characterOffset ?? 0,
     },
   );
-  expect(shown).toBe(true);
+  expect(shown?.inside).toBe(true);
+  // Repeated lines is 1: one line sits above the clicked line, not none.
+  expect(shown?.above).toBeGreaterThan(0.9);
+  expect(shown?.above).toBeLessThan(2.2);
   await page.waitForTimeout(900);
   expect(puts.length).toBe(1);
 });
