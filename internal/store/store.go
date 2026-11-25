@@ -373,6 +373,18 @@ type ReadingPosition struct {
 	TextBefore       *string
 	TextHighlight    *string
 	TextAfter        *string
+	// Clicked is the reader's last clicked character, nil when none is stored.
+	Clicked *ClickedCharacter
+}
+
+// ClickedCharacter is the clicked part of a stored position: a block and
+// offset, a quote, or both (ADR-0005).
+type ClickedCharacter struct {
+	CSSSelector     *string
+	CharacterOffset *int64
+	TextBefore      *string
+	TextHighlight   *string
+	TextAfter       *string
 }
 
 // ReadingPosition returns the user's stored position for the book, or
@@ -408,6 +420,25 @@ func readingPositionFromRow(row dbq.GetReadingPositionRow) ReadingPosition {
 	}
 	if row.TextAfter.Valid {
 		p.TextAfter = &row.TextAfter.String
+	}
+	var c ClickedCharacter
+	if row.ClickedCssSelector.Valid {
+		c.CSSSelector = &row.ClickedCssSelector.String
+	}
+	if row.ClickedCharacterOffset.Valid {
+		c.CharacterOffset = &row.ClickedCharacterOffset.Int64
+	}
+	if row.ClickedTextBefore.Valid {
+		c.TextBefore = &row.ClickedTextBefore.String
+	}
+	if row.ClickedTextHighlight.Valid {
+		c.TextHighlight = &row.ClickedTextHighlight.String
+	}
+	if row.ClickedTextAfter.Valid {
+		c.TextAfter = &row.ClickedTextAfter.String
+	}
+	if c != (ClickedCharacter{}) {
+		p.Clicked = &c
 	}
 	return p
 }
@@ -446,18 +477,27 @@ func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID
 			result = PositionIgnored
 			return nil
 		}
+		var clicked ClickedCharacter
+		if p.Clicked != nil {
+			clicked = *p.Clicked
+		}
 		n, err := q.UpsertReadingPosition(ctx, dbq.UpsertReadingPositionParams{
-			SavedAt:          sql.NullInt64{Int64: s.Now().UnixMilli(), Valid: true},
-			Href:             p.Href,
-			Progression:      p.Progression,
-			TotalProgression: p.TotalProgression,
-			CssSelector:      nullString(p.CSSSelector),
-			CharacterOffset:  nullInt64(p.CharacterOffset),
-			TextBefore:       nullString(p.TextBefore),
-			TextHighlight:    nullString(p.TextHighlight),
-			TextAfter:        nullString(p.TextAfter),
-			Username:         username,
-			BookID:           bookID,
+			ClickedCssSelector:     nullString(clicked.CSSSelector),
+			ClickedCharacterOffset: nullInt64(clicked.CharacterOffset),
+			ClickedTextBefore:      nullString(clicked.TextBefore),
+			ClickedTextHighlight:   nullString(clicked.TextHighlight),
+			ClickedTextAfter:       nullString(clicked.TextAfter),
+			SavedAt:                sql.NullInt64{Int64: s.Now().UnixMilli(), Valid: true},
+			Href:                   p.Href,
+			Progression:            p.Progression,
+			TotalProgression:       p.TotalProgression,
+			CssSelector:            nullString(p.CSSSelector),
+			CharacterOffset:        nullInt64(p.CharacterOffset),
+			TextBefore:             nullString(p.TextBefore),
+			TextHighlight:          nullString(p.TextHighlight),
+			TextAfter:              nullString(p.TextAfter),
+			Username:               username,
+			BookID:                 bookID,
 		})
 		if err != nil {
 			return err
