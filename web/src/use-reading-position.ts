@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
 import { contentId } from "./navigator";
 import {
-  applyResolvedPosition,
+  applyLocator,
   captureLocator,
   type Locator,
   type PagesRestore,
-  resolveLocator,
 } from "./position";
 import { usePositionQueue } from "./position-queue";
 import type { Layout } from "./settings";
@@ -67,6 +66,7 @@ export function useReadingPosition({
       hrefRef.current,
       layoutRef.current,
       pages?.progression(),
+      pages?.clicked(),
     );
   }, []);
 
@@ -92,20 +92,12 @@ export function useReadingPosition({
       restoring.current = true;
       moved.current = false;
       activeLocator.current = locator;
-      const resolved = resolveLocator(
+      applyLocator(
         content,
         locator,
         layoutRef.current,
         pagesRestoreRef.current() ?? undefined,
       );
-      if (resolved) {
-        applyResolvedPosition(
-          content,
-          resolved,
-          layoutRef.current,
-          pagesRestoreRef.current() ?? undefined,
-        );
-      }
       markProgrammatic();
       restoring.current = false;
     },
@@ -137,20 +129,12 @@ export function useReadingPosition({
       return false;
     }
     restoring.current = true;
-    const resolved = resolveLocator(
+    applyLocator(
       content,
       locator,
       layoutRef.current,
       pagesRestoreRef.current() ?? undefined,
     );
-    if (resolved) {
-      applyResolvedPosition(
-        content,
-        resolved,
-        layoutRef.current,
-        pagesRestoreRef.current() ?? undefined,
-      );
-    }
     markProgrammatic();
     restoring.current = false;
     return true;

@@ -129,7 +129,9 @@ func (q *Queries) GetBook(ctx context.Context, arg GetBookParams) (GetBookRow, e
 const getReadingPosition = `-- name: GetReadingPosition :one
 SELECT reading_positions.href, reading_positions.progression, reading_positions.total_progression,
        reading_positions.css_selector, reading_positions.character_offset,
-       reading_positions.text_before, reading_positions.text_highlight, reading_positions.text_after
+       reading_positions.text_before, reading_positions.text_highlight, reading_positions.text_after,
+       reading_positions.clicked_css_selector, reading_positions.clicked_character_offset,
+       reading_positions.clicked_text_before, reading_positions.clicked_text_highlight, reading_positions.clicked_text_after
 FROM reading_positions
 JOIN users ON users.id = reading_positions.user_id
 JOIN books ON books.user_id = reading_positions.user_id AND books.id = reading_positions.book_id
@@ -142,14 +144,19 @@ type GetReadingPositionParams struct {
 }
 
 type GetReadingPositionRow struct {
-	Href             string
-	Progression      float64
-	TotalProgression float64
-	CssSelector      sql.NullString
-	CharacterOffset  sql.NullInt64
-	TextBefore       sql.NullString
-	TextHighlight    sql.NullString
-	TextAfter        sql.NullString
+	Href                   string
+	Progression            float64
+	TotalProgression       float64
+	CssSelector            sql.NullString
+	CharacterOffset        sql.NullInt64
+	TextBefore             sql.NullString
+	TextHighlight          sql.NullString
+	TextAfter              sql.NullString
+	ClickedCssSelector     sql.NullString
+	ClickedCharacterOffset sql.NullInt64
+	ClickedTextBefore      sql.NullString
+	ClickedTextHighlight   sql.NullString
+	ClickedTextAfter       sql.NullString
 }
 
 func (q *Queries) GetReadingPosition(ctx context.Context, arg GetReadingPositionParams) (GetReadingPositionRow, error) {
@@ -164,6 +171,11 @@ func (q *Queries) GetReadingPosition(ctx context.Context, arg GetReadingPosition
 		&i.TextBefore,
 		&i.TextHighlight,
 		&i.TextAfter,
+		&i.ClickedCssSelector,
+		&i.ClickedCharacterOffset,
+		&i.ClickedTextBefore,
+		&i.ClickedTextHighlight,
+		&i.ClickedTextAfter,
 	)
 	return i, err
 }
@@ -494,13 +506,18 @@ func (q *Queries) UpdatePasswordHash(ctx context.Context, arg UpdatePasswordHash
 const upsertReadingPosition = `-- name: UpsertReadingPosition :execrows
 INSERT INTO reading_positions (
     user_id, book_id, href, progression, total_progression,
-    css_selector, character_offset, text_before, text_highlight, text_after, saved_at
+    css_selector, character_offset, text_before, text_highlight, text_after,
+    clicked_css_selector, clicked_character_offset,
+    clicked_text_before, clicked_text_highlight, clicked_text_after, saved_at
 )
 SELECT books.user_id, books.id, ?1, ?2, ?3,
        ?4, ?5,
-       ?6, ?7, ?8, ?9
+       ?6, ?7, ?8,
+       ?9, ?10,
+       ?11, ?12, ?13,
+       ?14
 FROM books JOIN users ON users.id = books.user_id
-WHERE users.username = ?10 AND books.id = ?11
+WHERE users.username = ?15 AND books.id = ?16
 ON CONFLICT (user_id, book_id) DO UPDATE SET
     href = excluded.href,
     progression = excluded.progression,
@@ -510,21 +527,31 @@ ON CONFLICT (user_id, book_id) DO UPDATE SET
     text_before = excluded.text_before,
     text_highlight = excluded.text_highlight,
     text_after = excluded.text_after,
+    clicked_css_selector = excluded.clicked_css_selector,
+    clicked_character_offset = excluded.clicked_character_offset,
+    clicked_text_before = excluded.clicked_text_before,
+    clicked_text_highlight = excluded.clicked_text_highlight,
+    clicked_text_after = excluded.clicked_text_after,
     saved_at = excluded.saved_at
 `
 
 type UpsertReadingPositionParams struct {
-	Href             string
-	Progression      float64
-	TotalProgression float64
-	CssSelector      sql.NullString
-	CharacterOffset  sql.NullInt64
-	TextBefore       sql.NullString
-	TextHighlight    sql.NullString
-	TextAfter        sql.NullString
-	SavedAt          sql.NullInt64
-	Username         string
-	BookID           string
+	Href                   string
+	Progression            float64
+	TotalProgression       float64
+	CssSelector            sql.NullString
+	CharacterOffset        sql.NullInt64
+	TextBefore             sql.NullString
+	TextHighlight          sql.NullString
+	TextAfter              sql.NullString
+	ClickedCssSelector     sql.NullString
+	ClickedCharacterOffset sql.NullInt64
+	ClickedTextBefore      sql.NullString
+	ClickedTextHighlight   sql.NullString
+	ClickedTextAfter       sql.NullString
+	SavedAt                sql.NullInt64
+	Username               string
+	BookID                 string
 }
 
 func (q *Queries) UpsertReadingPosition(ctx context.Context, arg UpsertReadingPositionParams) (int64, error) {
@@ -537,6 +564,11 @@ func (q *Queries) UpsertReadingPosition(ctx context.Context, arg UpsertReadingPo
 		arg.TextBefore,
 		arg.TextHighlight,
 		arg.TextAfter,
+		arg.ClickedCssSelector,
+		arg.ClickedCharacterOffset,
+		arg.ClickedTextBefore,
+		arg.ClickedTextHighlight,
+		arg.ClickedTextAfter,
 		arg.SavedAt,
 		arg.Username,
 		arg.BookID,

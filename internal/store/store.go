@@ -373,6 +373,19 @@ type ReadingPosition struct {
 	TextBefore       *string
 	TextHighlight    *string
 	TextAfter        *string
+	// Clicked is the character the user last clicked or selected on the
+	// spread in the pages layout (ADR-0005), or nil.
+	Clicked *ClickedCharacter
+}
+
+// ClickedCharacter locates the clicked character by block and offset, by
+// quote, or both.
+type ClickedCharacter struct {
+	CSSSelector     *string
+	CharacterOffset *int64
+	TextBefore      *string
+	TextHighlight   *string
+	TextAfter       *string
 }
 
 // ReadingPosition returns the user's stored position for the book, or
@@ -409,7 +422,31 @@ func readingPositionFromRow(row dbq.GetReadingPositionRow) ReadingPosition {
 	if row.TextAfter.Valid {
 		p.TextAfter = &row.TextAfter.String
 	}
+	c := ClickedCharacter{
+		CSSSelector:     nullableString(row.ClickedCssSelector),
+		CharacterOffset: nullableInt64(row.ClickedCharacterOffset),
+		TextBefore:      nullableString(row.ClickedTextBefore),
+		TextHighlight:   nullableString(row.ClickedTextHighlight),
+		TextAfter:       nullableString(row.ClickedTextAfter),
+	}
+	if c != (ClickedCharacter{}) {
+		p.Clicked = &c
+	}
 	return p
+}
+
+func nullableString(v sql.NullString) *string {
+	if !v.Valid {
+		return nil
+	}
+	return &v.String
+}
+
+func nullableInt64(v sql.NullInt64) *int64 {
+	if !v.Valid {
+		return nil
+	}
+	return &v.Int64
 }
 
 // SaveReadingPositionResult is whether a save was stored or ignored as stale
@@ -427,6 +464,10 @@ const (
 // ErrUnknownBook means the user's library has no such book.
 func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID string, tabID string, sequence int64, p ReadingPosition) (SaveReadingPositionResult, error) {
 	var result SaveReadingPositionResult
+	var clicked ClickedCharacter
+	if p.Clicked != nil {
+		clicked = *p.Clicked
+	}
 	err := s.inTx(ctx, func(q *dbq.Queries) error {
 		if _, err := q.GetBook(ctx, dbq.GetBookParams{Username: username, ID: bookID}); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -447,17 +488,22 @@ func (s *Store) SaveReadingPosition(ctx context.Context, username string, bookID
 			return nil
 		}
 		n, err := q.UpsertReadingPosition(ctx, dbq.UpsertReadingPositionParams{
-			SavedAt:          sql.NullInt64{Int64: s.Now().UnixMilli(), Valid: true},
-			Href:             p.Href,
-			Progression:      p.Progression,
-			TotalProgression: p.TotalProgression,
-			CssSelector:      nullString(p.CSSSelector),
-			CharacterOffset:  nullInt64(p.CharacterOffset),
-			TextBefore:       nullString(p.TextBefore),
-			TextHighlight:    nullString(p.TextHighlight),
-			TextAfter:        nullString(p.TextAfter),
-			Username:         username,
-			BookID:           bookID,
+			SavedAt:                sql.NullInt64{Int64: s.Now().UnixMilli(), Valid: true},
+			Href:                   p.Href,
+			Progression:            p.Progression,
+			TotalProgression:       p.TotalProgression,
+			CssSelector:            nullString(p.CSSSelector),
+			CharacterOffset:        nullInt64(p.CharacterOffset),
+			TextBefore:             nullString(p.TextBefore),
+			TextHighlight:          nullString(p.TextHighlight),
+			TextAfter:              nullString(p.TextAfter),
+			ClickedCssSelector:     nullString(clicked.CSSSelector),
+			ClickedCharacterOffset: nullInt64(clicked.CharacterOffset),
+			ClickedTextBefore:      nullString(clicked.TextBefore),
+			ClickedTextHighlight:   nullString(clicked.TextHighlight),
+			ClickedTextAfter:       nullString(clicked.TextAfter),
+			Username:               username,
+			BookID:                 bookID,
 		})
 		if err != nil {
 			return err

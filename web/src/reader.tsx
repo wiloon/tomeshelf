@@ -672,6 +672,8 @@ export function ReaderPage() {
       prepareProgression: () => controller.prepareProgression(),
       showCharacter: (node, offset) => controller.showCharacter(node, offset),
       showProgression: (progression) => controller.showProgression(progression),
+      clicked: () => controller.clicked(),
+      applyClicked: (node, offset) => controller.applyClicked(node, offset),
     };
   }, []);
   const {

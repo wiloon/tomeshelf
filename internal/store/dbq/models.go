@@ -17,17 +17,22 @@ type Book struct {
 }
 
 type ReadingPosition struct {
-	UserID           int64
-	BookID           string
-	Href             string
-	Progression      float64
-	TotalProgression float64
-	CssSelector      sql.NullString
-	CharacterOffset  sql.NullInt64
-	TextBefore       sql.NullString
-	TextHighlight    sql.NullString
-	TextAfter        sql.NullString
-	SavedAt          sql.NullInt64
+	UserID                 int64
+	BookID                 string
+	Href                   string
+	Progression            float64
+	TotalProgression       float64
+	CssSelector            sql.NullString
+	CharacterOffset        sql.NullInt64
+	TextBefore             sql.NullString
+	TextHighlight          sql.NullString
+	TextAfter              sql.NullString
+	SavedAt                sql.NullInt64
+	ClickedCssSelector     sql.NullString
+	ClickedCharacterOffset sql.NullInt64
+	ClickedTextBefore      sql.NullString
+	ClickedTextHighlight   sql.NullString
+	ClickedTextAfter       sql.NullString
 }
 
 type ReadingPositionTab struct {

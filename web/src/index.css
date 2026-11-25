@@ -340,11 +340,29 @@
 }
 
 :root[data-reading-layout="pages"] .reading-pages {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
   flex-direction: column;
   gap: 1rem;
+}
+
+/* The reading mark (ADR-0010): one arrow beside the line of the reading
+   position, outside the article and out of the flex flow. Opacity 0.6 keeps
+   at least 3:1 against the page in every theme, Sepia being the lowest. */
+[data-tomeshelf-reading-mark] {
+  position: absolute;
+  z-index: 1;
+  width: 10px;
+  height: 12px;
+  color: var(--page-fg);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+[data-tomeshelf-reading-mark] > svg {
+  display: block;
 }
 
 :root[data-reading-layout="pages"] .reading-pages > .reading-chrome {
