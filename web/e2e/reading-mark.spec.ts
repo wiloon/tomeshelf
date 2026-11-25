@@ -564,19 +564,37 @@ test("clicks above the first line, below the last, beside a picture, on a link, 
     picture.y + picture.height / 2,
   );
   await expectNothingStored(page, saves, pictureState, "a click on a picture");
-  const second = await page.locator("#picture-2 img").boundingBox();
-  if (!second || Math.abs(second.x - picture.x) > 1) {
-    throw new Error("the second picture is not below the first");
+});
+
+test("a click between two pictures in a row marks nothing", async ({
+  page,
+}) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  const token = await tokenOnPage(page, 1);
+  const box = await charBox(page, token);
+  await page.mouse.click(center(box).x, center(box).y);
+  await expect.poll(() => saves.at(-1)?.clicked).toBeTruthy();
+  const state = await settledState(page, saves);
+
+  const first = await page.locator("#pair-a img").boundingBox();
+  const second = await page.locator("#pair-b img").boundingBox();
+  if (!first || !second || second.y <= first.y + first.height) {
+    throw new Error("the pair is not one picture above the other");
   }
-  await page.mouse.click(
-    picture.x + picture.width / 2,
-    (picture.y + picture.height + second.y) / 2,
-  );
+  const between = {
+    x: first.x + first.width / 2,
+    y: (first.y + first.height + second.y) / 2,
+  };
+  await page.mouse.click(between.x, between.y);
+  await expectNothingStored(page, saves, state, "a click between two pictures");
+  const { article: a } = await spreadBoxes(page);
+  await page.mouse.click(a.left - 8, between.y);
   await expectNothingStored(
     page,
     saves,
-    pictureState,
-    "a click between two pictures",
+    state,
+    "a click in the margin between two pictures",
   );
 });
 
