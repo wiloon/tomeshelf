@@ -449,12 +449,14 @@ function resolveBlock(
 // Resolves a Locator's clicked character (ADR-0005 Clicked character): by
 // its quote, then by its block and offset. A repeated quote picks the
 // occurrence fewest block numbers from the stored block, then the first at or
-// after the restored spread start, then the first in document order. null
-// when there is none or it does not resolve.
+// after the restored spread start, then the first in document order. The
+// spread start is an offset into the article's text, which the spread start
+// marker never changes; null when no spread was restored. null when there is
+// none or it does not resolve.
 export function resolveClicked(
   content: HTMLElement,
   locator: Locator,
-  spreadStart: CharacterPoint | null,
+  spreadStart: number | null,
 ): CharacterPoint | null {
   const clicked = locator.clicked;
   if (!clicked) {
@@ -474,9 +476,10 @@ export function resolveClicked(
     };
     const nearest = Math.min(...occurrences.map(distance));
     const tied = occurrences.filter((occ) => distance(occ) === nearest);
-    const atOrAfterStart = spreadStart
-      ? tied.find((occ) => !isBefore(occ, spreadStart))
-      : undefined;
+    const atOrAfterStart =
+      spreadStart === null
+        ? undefined
+        : tied.find((occ) => textKey(content, occ) >= spreadStart);
     const picked = atOrAfterStart ?? tied[0];
     return { node: picked.node, offset: picked.offset };
   }
@@ -493,14 +496,17 @@ export function resolveClicked(
     : null;
 }
 
-// Whether a comes before b in document order.
-function isBefore(a: CharacterPoint, b: CharacterPoint): boolean {
-  if (a.node === b.node) {
-    return a.offset < b.offset;
+// The offset of a character into the article's text.
+function textKey(content: HTMLElement, point: CharacterPoint): number {
+  const walker = document.createTreeWalker(content, NodeFilter.SHOW_TEXT);
+  let key = 0;
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n === point.node) {
+      return key + point.offset;
+    }
+    key += (n as Text).length;
   }
-  return Boolean(
-    a.node.compareDocumentPosition(b.node) & Node.DOCUMENT_POSITION_FOLLOWING,
-  );
+  return key;
 }
 
 export function resolveLocator(
@@ -540,10 +546,9 @@ export function applyLocator(
   if (layout !== "pages" || !pages) {
     return;
   }
-  const start =
-    resolved?.kind === "character"
-      ? { node: resolved.node, offset: resolved.offset }
-      : null;
+  // The spread start the reader now shows, whether the anchor resolved by
+  // character or by progression.
+  const start = resolved ? pages.spreadStartKey() : null;
   const clicked = resolveClicked(content, locator, start);
   if (clicked) {
     pages.applyClicked(clicked.node, clicked.offset);
@@ -564,6 +569,8 @@ export type PagesRestore = {
   clicked: () => CharacterPoint | null;
   // Makes the character the clicked one and keeps its line on the spread.
   applyClicked: (node: Text, offset: number) => void;
+  // The shown spread start as an offset into the article's text.
+  spreadStartKey: () => number;
 };
 
 // Scrolls so the resolved character sits at the top of the viewport (scroll)

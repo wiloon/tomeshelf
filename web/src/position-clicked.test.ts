@@ -2,9 +2,15 @@
 // character): how it is captured and how it resolves. Where it is shown is
 // covered by Playwright.
 
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { afterEach, beforeEach, expect, type Mock, test, vi } from "vitest";
 import { renderDocument } from "./navigator";
-import { captureLocator, type Locator, resolveClicked } from "./position";
+import {
+  applyLocator,
+  captureLocator,
+  type Locator,
+  type PagesRestore,
+  resolveClicked,
+} from "./position";
 
 const href = "OEBPS/text/one.xhtml";
 
@@ -156,7 +162,7 @@ test("a repeated clicked quote picks the occurrence nearest its stored block", (
       text: refrainQuote,
     }),
     // The restored spread start is earlier, but block distance comes first.
-    { node: textOf(content, "a"), offset: 0 },
+    0,
   );
   expect(resolved?.node).toBe(textOf(content, "c"));
 });
@@ -166,7 +172,8 @@ test("a repeated clicked quote with no block picks the first occurrence at or af
   const resolved = resolveClicked(
     content,
     locatorWith({ text: refrainQuote }),
-    { node: textOf(content, "b"), offset: 3 },
+    // Three characters into b.
+    "Sing the refrain.".length + 3,
   );
   expect(resolved?.node).toBe(textOf(content, "c"));
 });
@@ -176,7 +183,7 @@ test("a repeated clicked quote with nothing after the spread start picks the fir
   const afterAll = resolveClicked(
     content,
     locatorWith({ text: refrainQuote }),
-    { node: textOf(content, "e"), offset: 0 },
+    (content.textContent ?? "").indexOf("The end."),
   );
   expect(afterAll?.node).toBe(textOf(content, "a"));
 
@@ -186,4 +193,67 @@ test("a repeated clicked quote with nothing after the spread start picks the fir
     null,
   );
   expect(noStart?.node).toBe(textOf(content, "a"));
+});
+
+// A PagesRestore whose spread start, as an article-text offset, is given.
+function pagesAt(spreadStartKey: number): PagesRestore & {
+  applyClicked: Mock<(node: Text, offset: number) => void>;
+} {
+  return {
+    progression: () => 0,
+    prepareProgression: () => {},
+    progressionOf: () => 0,
+    showCharacter: () => {},
+    showProgression: () => {},
+    clicked: () => null,
+    applyClicked: vi.fn<(node: Text, offset: number) => void>(),
+    spreadStartKey: () => spreadStartKey,
+  };
+}
+
+test("on restore, a repeated clicked quote is matched against the spread start the reader shows, not the restored anchor", () => {
+  // The spread starts at x's first character; the stored anchor, "Then
+  // more", lies after the refrain on the same line.
+  const content = article(
+    `<p id="w">Sing the refrain.</p><p id="x">Sing the refrain. Then more.</p><p id="y">Sing the refrain.</p>`,
+  );
+  const xStart = (content.textContent ?? "").indexOf("Sing the refrain. Then");
+  const pages = pagesAt(xStart);
+  applyLocator(
+    content,
+    {
+      href,
+      locations: { progression: 0.5 },
+      text: { before: "refrain. ", highlight: "Then more.", after: "" },
+      clicked: { text: refrainQuote },
+    },
+    "pages",
+    pages,
+  );
+  expect(pages.applyClicked).toHaveBeenCalledTimes(1);
+  // The same node, not just an equal one: every refrain reads alike.
+  const [node, offset] = pages.applyClicked.mock.calls[0];
+  expect(node).toBe(textOf(content, "x"));
+  expect(offset).toBe(0);
+});
+
+test("on a restore by progression, a repeated clicked quote still picks the first occurrence at or after the spread start", () => {
+  const content = article(refrain);
+  const cStart = 2 * "Sing the refrain.".length;
+  const pages = pagesAt(cStart);
+  applyLocator(
+    content,
+    {
+      href,
+      locations: { progression: 0.6 },
+      clicked: { text: refrainQuote },
+    },
+    "pages",
+    pages,
+  );
+  expect(pages.applyClicked).toHaveBeenCalledTimes(1);
+  // The same node, not just an equal one: every refrain reads alike.
+  const [node, offset] = pages.applyClicked.mock.calls[0];
+  expect(node).toBe(textOf(content, "c"));
+  expect(offset).toBe(0);
 });

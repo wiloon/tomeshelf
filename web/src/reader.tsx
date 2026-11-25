@@ -674,6 +674,7 @@ export function ReaderPage() {
       showProgression: (progression) => controller.showProgression(progression),
       clicked: () => controller.clicked(),
       applyClicked: (node, offset) => controller.applyClicked(node, offset),
+      spreadStartKey: () => controller.spreadStartKey(),
     };
   }, []);
   const {

@@ -53,6 +53,9 @@ export type PagesController = {
   // Restores a clicked character after the spread start: it becomes the
   // clicked character and its line is kept on the spread as re-layout does.
   applyClicked: (node: Text, offset: number) => void;
+  // The shown spread start as an offset into the article's text; 0 for the
+  // document's first spread.
+  spreadStartKey: () => number;
   // The shown spread's first page in the document's current column flow,
   // from 1, the document's pages up to its last line, and the pages a spread
   // holds (ADR-0010 Page numbers). Reads the existing layout only.
@@ -1249,6 +1252,7 @@ export function attachPagesController(
       keepClicked();
       readingMark.schedule();
     },
+    spreadStartKey: () => Math.max(0, current?.key ?? 0),
     spreadPages: () => {
       ensureMeasured();
       const page = layout.column + 1;

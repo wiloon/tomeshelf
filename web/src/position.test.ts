@@ -512,6 +512,7 @@ test("in the pages layout a repeated quote is tied by where restoring it would s
       showProgression: vi.fn(),
       clicked: () => null,
       applyClicked: vi.fn(),
+      spreadStartKey: () => 0,
     },
   );
   expect(prepareProgression).toHaveBeenCalled();
