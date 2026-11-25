@@ -495,6 +495,9 @@ test("clicks above the first line, below the last, beside a picture, on a link, 
   }
 
   for (const modifier of ["Shift", "Alt", "Control", "Meta"] as const) {
+    // No caret to extend: a Shift+click that makes a selection counts as
+    // one (see the Shift+click test).
+    await page.evaluate(() => getSelection()?.removeAllRanges());
     await page.keyboard.down(modifier);
     await page.mouse.click(a.left - 8, center(firstBox).y + 30);
     await page.keyboard.up(modifier);
@@ -1168,6 +1171,158 @@ test("in a table a margin click marks the row's last character, and in a pre the
   const { article: b } = await spreadBoxes(page);
   const preSide = second.left < (b.left + b.right) / 2 ? "left" : "right";
   await expectMarkBeside(page, second, preSide);
+});
+
+// The quote of the last non-whitespace character of a pre's visual line at
+// height y that its box shows, clipped overflow left out.
+async function shownLineEnd(page: Page, selector: string, y: number) {
+  return article(page).evaluate(
+    (el, { selector, y }) => {
+      const pre = el.querySelector(selector);
+      if (!pre) {
+        return null;
+      }
+      const clip = pre.getBoundingClientRect();
+      const range = document.createRange();
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let key = 0;
+      let last: number | null = null;
+      for (let n = walker.nextNode() as Text | null; n; ) {
+        if (pre.contains(n)) {
+          for (let i = 0; i < n.length; i++) {
+            if (/\s/.test(n.data[i])) {
+              continue;
+            }
+            range.setStart(n, i);
+            range.setEnd(n, i + 1);
+            const r = range.getBoundingClientRect();
+            if (
+              y >= r.top &&
+              y <= r.bottom &&
+              r.right > clip.left &&
+              r.left < clip.right
+            ) {
+              last = key + i;
+            }
+          }
+        }
+        key += n.length;
+        n = walker.nextNode() as Text | null;
+      }
+      return last === null
+        ? null
+        : (el.textContent ?? "").slice(last, last + 64);
+    },
+    { selector, y },
+  );
+}
+
+test("beside a pre line wider than the page, a click marks the last character its box shows, scrolled or not", async ({
+  page,
+}) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  await turnTo(page, "#code");
+  const wide = await charBox(page, "third pre line");
+  const y = center(wide).y;
+  const { article: a, pages, gap } = await spreadBoxes(page);
+  const onLeft = wide.left < pages[0].right;
+  const outer = onLeft ? a.left - 8 : a.right + 8;
+  const inner = onLeft ? pages[0].right + gap / 4 : pages[1].left - gap / 4;
+
+  // The highlight of the latest save once there are more than count.
+  const savedAfter = (count: number) => () =>
+    saves.length > count
+      ? saves.at(-1)?.clicked?.text?.highlight
+      : "(no save yet)";
+
+  const shown = await shownLineEnd(page, "#code", y);
+  expect(shown, "the line overflows its box").not.toMatch(/^x\s/);
+  let count = saves.length;
+  await page.mouse.click(outer, y);
+  await expect.poll(savedAfter(count)).toBe(shown);
+  count = saves.length;
+  await page.mouse.click(center(wide).x, center(wide).y);
+  await expect.poll(savedAfter(count)).toMatch(/^third pre line/);
+  count = saves.length;
+  await page.mouse.click(inner, y);
+  await expect.poll(savedAfter(count)).toBe(shown);
+
+  // Scrolled sideways, the box shows a later part of the line.
+  await page.locator("#code").evaluate((el) => {
+    el.scrollLeft = 160;
+  });
+  const scrolled = await shownLineEnd(page, "#code", y);
+  expect(scrolled).not.toBe(shown);
+  count = saves.length;
+  await page.mouse.click(outer, y);
+  await expect.poll(savedAfter(count)).toBe(scrolled);
+});
+
+test("a Shift+click that extends a selection marks the selection's last character", async ({
+  page,
+}) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  const token = await tokenOnPage(page, 0);
+  const from = await charBox(page, token);
+  await page.mouse.click(Math.round(from.left) + 1, Math.round(center(from).y));
+  const next = `K${String(Number(token.slice(1)) + 1).padStart(3, "0")}`;
+  const to = await charBox(page, next, 2);
+  await page.keyboard.down("Shift");
+  await page.mouse.click(Math.round(to.right) - 1, Math.round(center(to).y));
+  await page.keyboard.up("Shift");
+  const end = await selectionEnd(page);
+  expect(end, "Shift+click made a selection").not.toBeNull();
+  await expect
+    .poll(() => saves.at(-1)?.clicked?.text?.highlight)
+    .toBe(end?.highlight);
+});
+
+test("a press inside a popup released just outside it marks nothing", async ({
+  page,
+}) => {
+  await openBook(page);
+  const saves = positionSaves(page);
+  const token = await tokenOnPage(page, 1);
+  const box = await charBox(page, token);
+  await page.mouse.click(center(box).x, center(box).y);
+  await expect.poll(() => saves.at(-1)?.clicked).toBeTruthy();
+  const state = await settledState(page, saves);
+
+  const { pages } = await spreadBoxes(page);
+  // Over the right page's text, below the clicked line.
+  const popup = {
+    x: Math.round(pages[1].left + 80),
+    y: Math.round(box.bottom + 150),
+  };
+  await page.evaluate(({ x, y }) => {
+    const el = document.createElement("div");
+    el.id = "extension-popup";
+    el.textContent = "A looked-up word";
+    Object.assign(el.style, {
+      position: "fixed",
+      left: `${x}px`,
+      top: `${y}px`,
+      width: "200px",
+      height: "60px",
+      background: "white",
+      zIndex: "10",
+      // A press that moves inside it selects nothing, as in most popups.
+      userSelect: "none",
+    });
+    document.body.append(el);
+  }, popup);
+  await page.mouse.move(popup.x + 2, popup.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(popup.x - 2, popup.y + 30);
+  await page.mouse.up();
+  await expectNothingStored(
+    page,
+    saves,
+    state,
+    "a press in a popup released beside it",
+  );
 });
 
 test("on a spread whose right page is empty, clicks on that page or its margin mark nothing", async ({

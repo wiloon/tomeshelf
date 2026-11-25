@@ -301,10 +301,13 @@ function charactersIn(el: Element) {
   let first: Text | null = null;
   let last: Text | null = null;
   for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if ((n as Text).length === 0) {
+      continue;
+    }
     first ??= n as Text;
     last = n as Text;
   }
-  return first && last && last.length > 0
+  return first && last
     ? charactersBetween(
         { node: first, offset: 0 },
         { node: last, offset: last.length - 1 },
@@ -312,7 +315,7 @@ function charactersIn(el: Element) {
     : [];
 }
 
-const distanceTo = (rect: DOMRect, y: number) =>
+const distanceTo = (rect: { top: number; bottom: number }, y: number) =>
   y < rect.top ? rect.top - y : y > rect.bottom ? y - rect.bottom : 0;
 
 const startOf = (line: Line): SpreadStart =>
@@ -692,8 +695,10 @@ export function attachPagesController(
     ];
     // Fewer lines before it than Repeated lines: the document's first line.
     const first = n > 0 && before.length < n ? null : candidates[0];
+    // show(null) shows the document's first line, which is candidates[0]
+    // then: either way the next candidate is candidates[1].
     show(toStart(first));
-    for (const next of candidates.slice(first ? 1 : 0)) {
+    for (const next of candidates.slice(1)) {
       const now = clickedPoint();
       if (!now || pageOf(now) >= 0) {
         break;
@@ -702,8 +707,8 @@ export function attachPagesController(
     }
   };
 
-  // The characters of a page line, the visual line inside a table or pre at
-  // height y, in document order.
+  // The characters of a page line, in document order; inside a table or pre,
+  // those its box shows of the visual line at height y.
   const lineCharacters = (line: Line, y: number) => {
     if (line.el) {
       const all = charactersIn(line.el);
@@ -716,7 +721,15 @@ export function attachPagesController(
         all.reduce((best, c) =>
           distanceTo(c.rect, y) < distanceTo(best.rect, y) ? c : best,
         );
-      return all.filter((c) => Math.abs(c.rect.top - nearest.rect.top) < 2);
+      // Only what the box shows: a wide line's overflow is clipped, and
+      // may lie over the page gap or the next page.
+      const clip = line.el.getBoundingClientRect();
+      return all.filter(
+        (c) =>
+          Math.abs(c.rect.top - nearest.rect.top) < 2 &&
+          c.rect.right > clip.left &&
+          c.rect.left < clip.right,
+      );
     }
     const from = layout.textPoint(line.start);
     const to = layout.textPoint(line.end);
@@ -748,18 +761,17 @@ export function attachPagesController(
       const r = charRect(at.node, at.offset);
       return [{ line, top: r.top, bottom: r.bottom }];
     });
-    const first = rows[0];
-    const last = rows.at(-1);
-    if (!first || !last || y < first.top || y > last.bottom) {
+    if (
+      rows.length === 0 ||
+      y < Math.min(...rows.map((r) => r.top)) ||
+      y > Math.max(...rows.map((r) => r.bottom))
+    ) {
       return null;
     }
-    let row = rows.find((r) => y >= r.top && y <= r.bottom);
-    if (!row) {
-      const i = rows.findIndex((r) => r.top > y);
-      const above = rows[i - 1];
-      const below = rows[i];
-      row = y - above.bottom <= below.top - y ? above : below;
-    }
+    // The row at the pointer's height, or the nearest; the earlier on a tie.
+    const row = rows.reduce((best, r) =>
+      distanceTo(r, y) < distanceTo(best, y) ? r : best,
+    );
     if (row.line.el?.matches(pictureSelector)) {
       return null;
     }
@@ -840,34 +852,35 @@ export function attachPagesController(
   // moved further than a few pixels, or a second touch, marks nothing.
   let press: { x: number; y: number } | null = null;
   const onPointerDown = (event: PointerEvent) => {
-    press = event.isPrimary ? { x: event.clientX, y: event.clientY } : null;
+    press =
+      event.isPrimary && inReadingArea(event.target)
+        ? { x: event.clientX, y: event.clientY }
+        : null;
   };
   const onPointerCancel = () => {
     press = null;
   };
 
-  // The element a plain primary click or release landed on, when it is the
-  // article, inside it, or one of the reader's own elements around it; not
-  // anything placed over them (an extension's popup, a dialog).
+  // The element an event landed on, when it is the article, inside it, or one
+  // of the reader's own elements around it; not anything placed over them (an
+  // extension's popup, a dialog).
+  const inReadingArea = (target: EventTarget | null): Element | null => {
+    const el =
+      target instanceof Element
+        ? target
+        : target instanceof Node
+          ? target.parentElement
+          : null;
+    return el && (article.contains(el) || el.contains(article)) ? el : null;
+  };
+
+  // The element a primary click landed on in the reading area, with no Ctrl,
+  // Alt or Meta held. Shift is left to onClick: it may extend a selection.
   const readingTarget = (event: MouseEvent): Element | null => {
-    if (
-      event.button !== 0 ||
-      event.ctrlKey ||
-      event.altKey ||
-      event.metaKey ||
-      event.shiftKey
-    ) {
+    if (event.button !== 0 || event.ctrlKey || event.altKey || event.metaKey) {
       return null;
     }
-    const target =
-      event.target instanceof Element
-        ? event.target
-        : event.target instanceof Node
-          ? event.target.parentElement
-          : null;
-    return target && (article.contains(target) || target.contains(article))
-      ? target
-      : null;
+    return inReadingArea(event.target);
   };
 
   // A selection marks its last character; true when there is one, whether
@@ -895,10 +908,12 @@ export function attachPagesController(
     }
     settle();
     ensureMeasured();
+    // A selection counts however it was made, Shift+click included.
     if (takeSelection()) {
       return;
     }
     if (
+      event.shiftKey ||
       (article.contains(target) && target.closest(ownClickSelector)) ||
       !start ||
       Math.hypot(event.clientX - start.x, event.clientY - start.y) > clickSlopPx
