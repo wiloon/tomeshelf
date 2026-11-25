@@ -160,6 +160,66 @@ for (const size of [
   });
 }
 
+// Turns Next until the address names document n.
+async function readTo(page: Page, n: number) {
+  for (let turns = 0; turns < 120; turns++) {
+    if (new RegExp(`/read/${n}$`).test(page.url())) {
+      return;
+    }
+    await nav(page).getByRole("button", { name: "Next" }).click();
+  }
+  throw new Error(`never reached document ${n}`);
+}
+
+// A late-loading picture in the shown document: the controller re-lays it
+// out as it does for a real load event.
+async function lateImageLoad(page: Page, append?: string) {
+  await article(page).evaluate((el, html) => {
+    if (html) {
+      const pre = document.createElement("pre");
+      pre.textContent = html;
+      el.append(pre);
+    }
+    const img = document.createElement("img");
+    img.alt = "";
+    el.prepend(img);
+    img.dispatchEvent(new Event("load"));
+  }, append);
+  await page.evaluate(
+    () =>
+      new Promise((done) =>
+        requestAnimationFrame(() => requestAnimationFrame(done)),
+      ),
+  );
+}
+
+test("a picture loading late keeps the counts of documents read before", async ({
+  page,
+}) => {
+  await openBook(page);
+  await resize(page, { width: 1280, height: 800 });
+  await readTo(page, 3);
+  await expect(article(page)).toContainText("Document Three");
+  // The last document's only page is the book's last page.
+  await expect(pageNumbers(page)).toHaveText(/^(\d+) of \1$/);
+  const before = await pageNumbers(page).textContent();
+  await lateImageLoad(page);
+  await expect(pageNumbers(page)).toHaveText(before ?? "");
+});
+
+test("a document ending with a wide pre counts only the pages it shows", async ({
+  page,
+}) => {
+  await openBook(page);
+  await resize(page, { width: 1280, height: 800 });
+  await readTo(page, 3);
+  await expect(article(page)).toContainText("Document Three");
+  // One line far wider than a page: its box scrolls inside its column.
+  await lateImageLoad(page, `${"wide ".repeat(400)}end`);
+  // The last document's only page is the book's last page.
+  await expect(pageNumbers(page)).toHaveText(/^(\d+) of \1$/);
+});
+
 test("the scroll layout shows no page numbers", async ({ page }) => {
   await openBook(page, "scroll");
   await expect(nav(page)).toBeVisible();

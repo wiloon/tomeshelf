@@ -68,8 +68,10 @@ export type PagesControllerOptions = {
   // has been aligned to a spread start (not restore or re-layout).
   onMove?: () => void;
   // Called after every re-layout, which can change atStart and atEnd
-  // without a scroll event.
-  onRelayout?: () => void;
+  // without a scroll event. bookWide is false when only this document
+  // reflowed (a late-loading picture), true when the window, a reading
+  // setting or a font changed every document's pages.
+  onRelayout?: (bookWide: boolean) => void;
 };
 
 const wheelQuietMs = 300;
@@ -202,14 +204,22 @@ function lastContentOffset(article: HTMLElement): number {
     if (!rect || (rect.width === 0 && rect.height === 0)) {
       continue;
     }
-    offset = rect.left - origin;
+    // Text in a nested scroll area (a wide table, pre) overflows past its
+    // column; the area's own box is where it shows.
+    const area = text.parentElement?.closest("table, pre");
+    const box =
+      area && article.contains(area) ? area.getBoundingClientRect() : rect;
+    offset = box.left - origin;
     break;
   }
   const media = article.querySelectorAll("img, svg, video");
-  const rects = media[media.length - 1]?.getClientRects();
-  const last = rects?.[rects.length - 1];
-  if (last) {
-    offset = Math.max(offset, last.left - origin);
+  for (let k = media.length - 1; k >= 0; k--) {
+    const rects = media[k].getClientRects();
+    const last = rects[rects.length - 1];
+    if (last && (last.width > 0 || last.height > 0)) {
+      offset = Math.max(offset, last.left - origin);
+      break;
+    }
   }
   return offset;
 }
@@ -499,7 +509,7 @@ export function attachPagesController(
     return Math.abs(left - ownLeft) > 1 && !clamped;
   };
 
-  const relayout = (apply?: () => void) => {
+  const relayout = (apply?: () => void, bookWide = true) => {
     // A scroll that arrives in the same frame as a resize is kept: the line
     // holding its first visible character becomes the spread start.
     const ch = scrolledByOthers() ? firstVisibleCharacter(article) : null;
@@ -517,7 +527,7 @@ export function attachPagesController(
       show(toStart(lineHolding(point.node, point.offset)));
       queueMicrotask(() => onMove?.());
     }
-    onRelayout?.();
+    onRelayout?.(bookWide);
   };
 
   const onKeyDown = (event: KeyboardEvent) => {
@@ -621,7 +631,7 @@ export function attachPagesController(
     loadFrame = requestAnimationFrame(() => {
       // A scroll waiting to be aligned is aligned on the new layout.
       if (!alignPending) {
-        relayout();
+        relayout(undefined, false);
       }
     });
   };
@@ -654,7 +664,7 @@ export function attachPagesController(
       article.style.removeProperty("--reading-page-height");
       article.style.removeProperty("--reading-scroll-end");
     },
-    relayout,
+    relayout: (apply) => relayout(apply),
     turn: go,
     atStart,
     atEnd,

@@ -78,4 +78,10 @@ describe("page numbers (ADR-0010 Page numbers)", () => {
     book.forget();
     expect(book.label(0, 1, 2)).toBeNull();
   });
+
+  test("a spread number is never more than the page count", () => {
+    const book = new PageNumbers([text(10)]);
+    book.measure(0, 5);
+    expect(book.label(0, 7, 2)).toBe("5 of 5");
+  });
 });

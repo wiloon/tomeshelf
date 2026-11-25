@@ -34,8 +34,9 @@ export class PageNumbers {
     }
     const before = pages.slice(0, index).reduce((a, b) => a + b, 0);
     const total = pages.reduce((a, b) => a + b, 0);
-    const first = before + page;
-    const last = before + Math.min(page + perSpread - 1, pages[index]);
+    const shown = Math.min(Math.max(1, page), pages[index]);
+    const first = before + shown;
+    const last = before + Math.min(shown + perSpread - 1, pages[index]);
     return last > first
       ? `${first}–${last} of ${total}`
       : `${first} of ${total}`;

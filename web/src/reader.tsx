@@ -243,9 +243,13 @@ function BookDocument({
       wheelTurnsPages: () => wheelTurnsPages.current,
       repeatedLines: () => repeatedLines.current,
       onExhausted: (direction) => onExhaustedRef.current(direction),
-      onMove: () => onMoveRef.current(),
-      onRelayout: () => {
-        reportSpread(true);
+      onMove: () => {
+        onMoveRef.current();
+        // An alignment can place the marker without moving scrollLeft.
+        reportSpread();
+      },
+      onRelayout: (bookWide) => {
+        reportSpread(bookWide);
         updateEdges();
       },
     });
