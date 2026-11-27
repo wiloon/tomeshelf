@@ -5,7 +5,7 @@ go 1.27.0
 ignore ./web/node_modules
 
 require (
-	github.com/pressly/goose/v3 v3.30.1
+	github.com/pressly/goose/v3 v3.30.2
 	github.com/readium/go-toolkit v0.16.2
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.63.0
@@ -63,7 +63,6 @@ require (
 	github.com/readium/zran v0.0.0-20260525212206-dcf56adb2c0e // indirect
 	github.com/relvacode/iso8601 v1.8.3 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
-	github.com/sethvargo/go-retry v0.5.0 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.8.1 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.45.0 // indirect
