@@ -6,7 +6,7 @@ ignore ./web/node_modules
 
 require (
 	github.com/pressly/goose/v3 v3.30.2
-	github.com/readium/go-toolkit v0.16.2
+	github.com/readium/go-toolkit v0.17.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/net v0.63.0
 	modernc.org/sqlite v1.63.0
