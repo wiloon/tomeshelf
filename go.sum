@@ -119,8 +119,8 @@ github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 h1:GFCKgm
 github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10/go.mod h1:t/avpk3KcrXxUnYOhZhMXJlSEyie6gQbtLq5NM3loB8=
 github.com/pressly/goose/v3 v3.30.2 h1:BybLz+oUOSFZcyEa5J8Mn8CCafx9/9pG7ga9bAHCgM4=
 github.com/pressly/goose/v3 v3.30.2/go.mod h1:zyvw7RV7IZ56Q7Rh0uk59I45vy/RYbsUnbXZd87kMmk=
-github.com/readium/go-toolkit v0.17.0 h1:/ayi0VkqOCus+ZHkf/YTCtcD0x2oKv7Y203GoUwl5eI=
-github.com/readium/go-toolkit v0.17.0/go.mod h1:YxTxA0u1F+LzpGuzlbA/Jea0G+Q3mh+2hszh8m8l2LM=
+github.com/readium/go-toolkit v0.17.1 h1:Bj9CDRTsqD/MAtvD1jt5K6F/qW6NNcLV9/fJCrwiKzI=
+github.com/readium/go-toolkit v0.17.1/go.mod h1:YxTxA0u1F+LzpGuzlbA/Jea0G+Q3mh+2hszh8m8l2LM=
 github.com/readium/zran v0.0.0-20260525212206-dcf56adb2c0e h1:DQJkuzoHhmE+FGtWRanEanh2IpiXRxwmR4OgQwiD5vA=
 github.com/readium/zran v0.0.0-20260525212206-dcf56adb2c0e/go.mod h1:3znXhDJYPPRNT6KgvPVhTmzAiqUqzEPKUPhPXrPSdB0=
 github.com/relvacode/iso8601 v1.8.3 h1:8h2uX8q1kG/nioHh7WpG2ywfnM4OW6MhRGK4M5O0Odk=
